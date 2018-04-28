@@ -1,6 +1,6 @@
 import React from 'react'
-import faceplate from '../Assets/faceplate.png'
-import pointer from '../Assets/pointer.png'
+import faceplate from '../Assets/faceplate2.png'
+import pointer from '../Assets/pointer2.png'
 
 class App extends React.Component {
   static updateAmount = 1

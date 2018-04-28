@@ -1,32 +1,35 @@
 const SerialPort = require('serialport').SerialPort
-const {app, BrowserWindow} = require('electron')
+const { app, BrowserWindow } = require('electron')
 const path = require('path')
 const url = require('url')
 
 // SERIAL
-const portName = '/dev/ttyACM0';
-const sp = new SerialPort(portName, { // portName is instatiated to be COM3, replace as necessary
-   baudRate: 115200, // this is synced to what was set for the Arduino Code
-   dataBits: 8, // this is the default for Arduino serial communication
-   parity: 'none', // this is the default for Arduino serial communication
-   stopBits: 1, // this is the default for Arduino serial communication
-   flowControl: false // this is the default for Arduino serial communication
-});
+const portName = '/dev/ttyACM0'
+const sp = new SerialPort(portName, {
+  // portName is instatiated to be COM3, replace as necessary
+  baudRate: 115200, // this is synced to what was set for the Arduino Code
+  dataBits: 8, // this is the default for Arduino serial communication
+  parity: 'none', // this is the default for Arduino serial communication
+  stopBits: 1, // this is the default for Arduino serial communication
+  flowControl: false // this is the default for Arduino serial communication
+})
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let win
 
-function createWindow () {
+function createWindow() {
   // Create the browser window.
-  win = new BrowserWindow({width: 800, height: 600})
+  win = new BrowserWindow({ width: 800, height: 480, frame: false })
 
   // and load the index.html of the app.
-  win.loadURL(url.format({
-    pathname: path.join(__dirname, 'index.html'),
-    protocol: 'file:',
-    slashes: true
-  }))
+  win.loadURL(
+    url.format({
+      pathname: path.join(__dirname, 'index.html'),
+      protocol: 'file:',
+      slashes: true
+    })
+  )
 
   // Open the DevTools.
   win.webContents.openDevTools()
