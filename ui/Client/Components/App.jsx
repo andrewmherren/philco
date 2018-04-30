@@ -1,7 +1,7 @@
-import React from 'react'
-import faceplate from '../Assets/faceplate2.png'
-import pointer from '../Assets/pointer2.png'
+import faceplate from '../Assets/faceplate.png'
+import pointer from '../Assets/pointer.png'
 import { w3cwebsocket } from 'websocket'
+import React from 'react'
 
 class App extends React.Component {
   static updateAmount = 1
