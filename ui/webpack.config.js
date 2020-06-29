@@ -1,5 +1,6 @@
 var path = require('path')
 var webpack = require('webpack')
+var autoprefixer = require('autoprefixer')
 
 module.exports = {
   mode: 'development',
@@ -74,19 +75,6 @@ module.exports = {
               name: '[hash].[ext]'
             }
           },
-          {
-            loader: 'image-webpack-loader',
-            options: {
-              query: {
-                gifsicle: {
-                  interlaced: false
-                },
-                optipng: {
-                  optimizationLevel: 7
-                }
-              }
-            }
-          }
         ]
       },
       // Audio
@@ -111,7 +99,6 @@ module.exports = {
     ]
   },
   plugins: [
-    new webpack.HotModuleReplacementPlugin(),
-    new webpack.IgnorePlugin(new RegExp('^(fs|ipc)$'))
+    new webpack.HotModuleReplacementPlugin()
   ]
 }

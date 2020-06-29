@@ -1,7 +1,5 @@
 @lxpanel --profile LXDE-pi
 @pcmanfm --desktop --profile LXDE-pi
-#@xscreensaver -no-splash
-@guake
 @npm start --prefix /home/badflsh/philco/api/
 @npm start --prefix /home/badflsh/philco/ui/
 @chromium-browser --incognito --kiosk http://localhost:5000

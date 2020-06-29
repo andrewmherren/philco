@@ -5,12 +5,16 @@
   "main": "index.js",
   "scripts": {
     "start": "cross-env node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "npm-check": "cross-env node ./node_modules/.bin/npm-check -u"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "cross-env": "^5.1.4",
+    "cross-env": "^7.0.2",
     "websocket": "^1.0.26"
+  },
+  "devDependencies": {
+    "npm-check": "^5.9.2"
   }
 }
