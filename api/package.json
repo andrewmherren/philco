@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "cross-env": "^7.0.2",
+    "serialport": "^9.0.1",
     "websocket": "^1.0.26"
   },
   "devDependencies": {
