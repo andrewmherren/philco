@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly disk space check for philco-ui
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
