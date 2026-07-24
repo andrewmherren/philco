@@ -1,0 +1,6 @@
+[Unit]
+Description=Check root filesystem usage and vacuum logs/caches if critically full
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/disk-space-check.sh
