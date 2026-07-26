@@ -1,3 +1,11 @@
+## Picking this project back up after a long gap
+
+Read [AGENT_SCRATCHPAD.md](AGENT_SCRATCHPAD.md) first — current status,
+what's done, what's pending, and debugging history all live there. If
+something seems broken, `df -h /`, `timedatectl`, and
+`cat /etc/resolv.conf` are good first checks (see
+[scripts/pi-maintenance/](scripts/pi-maintenance/) for why).
+
 ## Setup
 * Copy assets/config.txt to /boot/config.txt for touch screen config (verify compatibility if raspbian other than buster)
 * Copy assets/input.conf to /usr/share/X11/xorg.conf.d/input.conf for touch calibration. New calibration can be made from menu > preferences > calibrate touch
@@ -18,14 +26,10 @@
 
 ## Known constraints
 
-* The Pi's SD card is small (~7.4G total, `/dev/mmcblk0p2` is the whole
-  card — nothing to expand). It runs close to full even at rest between the
-  OS, Arduino IDE under `/etc/arduino` (~860M, per the setup steps above),
-  and `/home/philco` (~830M). Before installing anything new, check
-  `df -h /` first; `sudo journalctl --vacuum-size=50M` and `sudo apt clean`
-  are quick, safe ways to claw back space if a command fails with
-  "No space left on device". A bigger card is the real long-term fix if this
-  becomes a recurring problem.
+* The Pi's SD card is small (~7.4G, non-expandable) and runs close to
+  full even at rest. Check `df -h /` before installing anything new — see
+  [scripts/pi-maintenance/](scripts/pi-maintenance/) for guardrails and
+  quick-relief commands if a command fails with "No space left on device".
 
 ## Temporary remote access for AI-assisted debugging
 
@@ -34,6 +38,12 @@ key-only, one-command-toggle SSH account you can hand to an AI assistant
 (or anyone else) without exposing your own login — and revoke just as
 easily when the session's over.
 
+## Radio stack revamp (in progress, `revamp` branch)
+
+See [radio-stack/README.md](radio-stack/README.md) for the project plan
+to unify the audio/Bluetooth/Spotify/HA stack across this device and any
+future ones.
+
 ## The second Pi (Bluetooth/AirPlay/Spotify radio)
 
 This repo's app runs on `philco-ui`, but the cabinet also has a second,
@@ -41,14 +51,3 @@ separate Raspberry Pi (`philco`) that runs none of this code — it's just a
 Bluetooth/AirPlay/Spotify Connect audio receiver. See
 [radio-pi/README.md](radio-pi/README.md) for how it's actually put
 together (spoiler: not a prebuilt image, despite looking like one).
-
-## Disk-space guardrails (2026-07 incident)
-
-The SD card filled to 100% after roughly a year of unattended uptime,
-which nearly corrupted `sudo` itself. Root cause and the fix (a journald
-size cap + a weekly watchdog timer, plus two related broken services —
-NTP sync and DNS — that surfaced during cleanup) are documented in
-[scripts/pi-maintenance/](scripts/pi-maintenance/). If you're picking
-this project back up after a long gap and something seems broken, read
-that first — `df -h /`, `timedatectl`, and `cat /etc/resolv.conf` are
-good first checks.

@@ -1,25 +1,11 @@
 ## Why this exists
 
-In 2026-07 this Pi's SD card (~7.4G, non-expandable) filled to 100%, which
-broke `sudo`, package installs, and very nearly corrupted `/etc/sudoers.d`
-mid-write. Root cause: this device runs unattended for a year or more
-between visits, and `systemd-journald` had no size cap, so the persistent
-journal (`/var/log/journal/`) grew unbounded over that time until it — along
-with the Arduino IDE install and the project checkout under `/home/philco`
-— ate the whole card.
-
-At the same time we found two related, silently-broken services on this
-specific Pi (most likely from whatever happened during the disk-full
-period): `systemd-timesyncd` was crash-looping (`status=226/NAMESPACE`,
-consistent with a systemd private-mount-namespace setup failing when the
-disk had no room), and `/etc/resolv.conf` had been empty since first boot,
-so DNS resolution silently failed — which in turn kept NTP from ever
-completing a sync. Restarting `systemd-timesyncd` and `dhcpcd` (see
-2026-07 fix in git history / this file) resolved both once disk space was
-available again. If DNS breaks again, check `cat /etc/resolv.conf` and
-`sudo resolvconf -l` first — `resolvconf`/openresolv are installed and work
-correctly when invoked, the issue was that the record from dhcpcd wasn't
-being flushed to disk.
+Caps `systemd-journald`'s size and adds a periodic disk-space check,
+because these devices run unattended for a year or more between visits —
+without a cap, journald can quietly fill a small SD card over that much
+uptime. Full incident history and root-cause details (including a DNS/NTP
+issue that surfaced alongside it) are in
+[AGENT_SCRATCHPAD.md](../../AGENT_SCRATCHPAD.md) at the repo root.
 
 ## What this installs
 

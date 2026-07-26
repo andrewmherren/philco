@@ -1,0 +1,13 @@
+[Unit]
+Description=Bluetooth PIN Agent
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /usr/local/bin/bt-agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

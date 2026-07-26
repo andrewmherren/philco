@@ -12,6 +12,8 @@
   "license": "ISC",
   "dependencies": {
     "cross-env": "^7.0.2",
+    "dotenv": "^16.0.0",
+    "mqtt": "^5.0.0",
     "serialport": "^9.0.1",
     "websocket": "^1.0.26"
   },
