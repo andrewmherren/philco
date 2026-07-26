@@ -34,6 +34,14 @@ key-only, one-command-toggle SSH account you can hand to an AI assistant
 (or anyone else) without exposing your own login — and revoke just as
 easily when the session's over.
 
+## The second Pi (Bluetooth/AirPlay/Spotify radio)
+
+This repo's app runs on `philco-ui`, but the cabinet also has a second,
+separate Raspberry Pi (`philco`) that runs none of this code — it's just a
+Bluetooth/AirPlay/Spotify Connect audio receiver. See
+[radio-pi/README.md](radio-pi/README.md) for how it's actually put
+together (spoiler: not a prebuilt image, despite looking like one).
+
 ## Disk-space guardrails (2026-07 incident)
 
 The SD card filled to 100% after roughly a year of unattended uptime,
