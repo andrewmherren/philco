@@ -64,50 +64,50 @@ wsServer.on('request', request => {
   })
 })
 
-// serial controller
-// const sendSetting = connection => {
-//   radioSetting = (radioSetting + 1) % 360
-//   connection.sendUTF(JSON.stringify({ radioSetting }))
-// }
-
-
-// port.write('main screen turn on', function(err) {
-//   if (err) {
-//     return console.log('Error on write: ', err.message)
-//   }
-//   console.log('message written')
-// })
-
-// Read data that is available but keep the stream in "paused mode"
-// port.on('readable', function () {
-//   console.log('Data:', port.read())
-// })
-
 // Maps the numeric control type the Arduino sends (see STATION/VOLUME/MULTI1
 // in arduino/controls/controls.ino) to the mqtt-bridge control keys.
 const CONTROL_TYPES = { 0: 'station', 1: 'volume', 2: 'multi1' }
+
+// The station potentiometer is read with analogRead() on a Teensy 2.0
+// (10-bit ADC, PIN_F0/PIN_B6-style AVR pin names in controls.ino), so raw
+// values run 0-1023. Map that to degrees for the UI's pointer rotation.
+const STATION_ADC_MAX = 1023
+
+// The mode switch's "3" position (multi1_2_pin / PIN_F5 in controls.ino)
+// has a hardware fault -- that pin never reads LOW, so the Arduino always
+// falls through to its "nothing pressed" default (0) at that position
+// instead of sending 3. Confirmed repeatable, not intermittent. Remap the
+// raw values (observed while rotating through all 6 positions in order:
+// 6,5,4,0,2,1) to consecutive logical positions here rather than in the
+// Arduino sketch, so it's easy to adjust without reflashing the Teensy.
+// The real fix is checking that wire/connection; this is a workaround.
+const MULTI1_REMAP = { 6: 1, 5: 2, 4: 3, 0: 4, 2: 5, 1: 6 }
 
 let serialBuffer = ''
 
 // Switches the port into "flowing mode"
 port.on('data', function (data) {
   console.log('Data:', data)
-  if(connection != null) {
-    // send the serial data across the websocket
-    connection.sendUTF(data)
-  }
 
   // the Arduino sends lines like "0,512" (type,value) -- buffer across
   // chunks since a single serial read isn't guaranteed to land on a line
-  // boundary, then publish each complete line to MQTT.
+  // boundary, then publish each complete line to MQTT and relay the
+  // station value to the UI so its pointer can rotate.
   serialBuffer += data.toString()
   const lines = serialBuffer.split('\n')
   serialBuffer = lines.pop()
   lines.forEach((line) => {
     const [type, value] = line.trim().split(',')
     const key = CONTROL_TYPES[type]
-    if (key && value !== undefined) {
-      mqttBridge.publish(key, value)
+    if (!key || value === undefined) return
+
+    const publishedValue = key === 'multi1' ? MULTI1_REMAP[value] : value
+    if (publishedValue === undefined) return
+    mqttBridge.publish(key, publishedValue)
+
+    if (key === 'station' && connection != null) {
+      const radioSetting = Math.round((Number(value) / STATION_ADC_MAX) * 360)
+      connection.sendUTF(JSON.stringify({ radioSetting }))
     }
   })
 })
