@@ -13,6 +13,12 @@ const PAIRING_CODE_TOPIC = 'philco/pairing/code'
 const PAIRING_STATE_TOPIC = 'philco/pairing/state'
 const PAIRING_RESPONSE_TOPIC = 'philco/pairing/response'
 
+// The radio Pi's eq-agent.py owns these -- band keys match its
+// BAND_NUMID keys (ISO-ish labels for the alsaequal 10-band graphic EQ).
+// Payloads are the plugin's native 0-100 scale (66 = flat), not dB.
+const EQ_SET_TOPIC_PREFIX = 'philco/eq/set'
+const EQ_STATE_TOPIC_PREFIX = 'philco/eq/state'
+
 const DEVICE = {
   identifiers: ['philco-ui-controls'],
   name: 'Philco UI Controls',
@@ -26,10 +32,10 @@ const CONTROLS = {
   multi1: { name: 'Mode Switch', icon: 'mdi:tune-variant' },
 }
 
-function createBridge({ host, port, username, password, onPairingUpdate }) {
+function createBridge({ host, port, username, password, onPairingUpdate, onEqUpdate }) {
   if (!host) {
     console.log(new Date() + ' MQTT bridge disabled: no host configured')
-    return { publish() {}, respondToPairing() {} }
+    return { publish() {}, respondToPairing() {}, publishEqSet() {} }
   }
 
   const client = mqtt.connect(`mqtt://${host}:${port || 1883}`, {
@@ -43,6 +49,7 @@ function createBridge({ host, port, username, password, onPairingUpdate }) {
   // pairing passkey here -- this Pi has the only screen, so it's
   // responsible for displaying it. See radio-pi/bt-agent.py.
   const pairing = { code: '', state: 'idle' }
+  const eq = {}
 
   client.on('connect', () => {
     console.log(new Date() + ' MQTT connected, publishing discovery config')
@@ -59,20 +66,26 @@ function createBridge({ host, port, username, password, onPairingUpdate }) {
         { retain: true }
       )
     })
-    client.subscribe([PAIRING_CODE_TOPIC, PAIRING_STATE_TOPIC], (err) => {
-      if (err) console.log(new Date() + ' MQTT subscribe error: ' + err.message)
-    })
+    client.subscribe(
+      [PAIRING_CODE_TOPIC, PAIRING_STATE_TOPIC, `${EQ_STATE_TOPIC_PREFIX}/+`],
+      (err) => {
+        if (err) console.log(new Date() + ' MQTT subscribe error: ' + err.message)
+      }
+    )
   })
 
   client.on('message', (topic, message) => {
     if (topic === PAIRING_CODE_TOPIC) {
       pairing.code = message.toString()
+      if (onPairingUpdate) onPairingUpdate({ ...pairing })
     } else if (topic === PAIRING_STATE_TOPIC) {
       pairing.state = message.toString()
-    } else {
-      return
+      if (onPairingUpdate) onPairingUpdate({ ...pairing })
+    } else if (topic.startsWith(`${EQ_STATE_TOPIC_PREFIX}/`)) {
+      const band = topic.slice(EQ_STATE_TOPIC_PREFIX.length + 1)
+      eq[band] = message.toString()
+      if (onEqUpdate) onEqUpdate({ ...eq })
     }
-    if (onPairingUpdate) onPairingUpdate({ ...pairing })
   })
 
   client.on('error', (err) => {
@@ -87,6 +100,10 @@ function createBridge({ host, port, username, password, onPairingUpdate }) {
     respondToPairing(response) {
       if (!client.connected) return
       client.publish(PAIRING_RESPONSE_TOPIC, response)
+    },
+    publishEqSet(band, gain) {
+      if (!client.connected) return
+      client.publish(`${EQ_SET_TOPIC_PREFIX}/${band}`, String(gain))
     },
   }
 }

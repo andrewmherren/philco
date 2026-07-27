@@ -28,6 +28,8 @@ Raspberry Pi OS with a few things installed on top.
   [`bt-agent.service`](bt-agent.service)
 - **Volume ceiling**: hardware gain register capped so nothing can play
   dangerously loud — see "Adjusting max volume" below
+- **Equalizer**: `libasound2-plugin-equal` (alsaequal), a 10-band ALSA
+  EQ sitting in front of `hw:0` for all sources — see "Equalizer" below
 
 All sources share the same ALSA output, so only one plays at a time.
 
@@ -50,6 +52,25 @@ sudo alsactl store                        # persist across reboots
 ```
 Change is live — no restart needed to test. `amixer -c0 sget Digital`
 shows the current setting.
+
+## Equalizer
+
+A 10-band ALSA equalizer sits in the audio path for all sources, to
+compensate for the muddy midrange the current 3D-printed speaker
+enclosures produce. Controlled remotely from `philco-ui`'s touchscreen
+(turn the mode switch to position 6) via [`eq-agent.py`](eq-agent.py) /
+[`eq-agent.service`](eq-agent.service) — same MQTT-agent pattern as
+[`bt-agent.py`](bt-agent.py).
+
+To adjust a band by hand instead:
+```
+alsamixer -D eq
+# or non-interactively, e.g.:
+amixer -D eq cset numid=4 40,40   # numid=4 is the 250 Hz band
+```
+Changes made this way aren't reflected on the touchscreen and won't
+survive a reboot — use the touchscreen (or publish to
+`philco/eq/set/<band>` over MQTT) for anything that should stick.
 
 ## Remote access
 

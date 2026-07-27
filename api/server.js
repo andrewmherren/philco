@@ -17,6 +17,11 @@ const mqttBridge = createBridge({
       connection.sendUTF(JSON.stringify({ pairing }))
     }
   },
+  onEqUpdate: (eq) => {
+    if (connection != null) {
+      connection.sendUTF(JSON.stringify({ eq }))
+    }
+  },
 })
 
 // websocket server
@@ -51,6 +56,8 @@ wsServer.on('request', request => {
       const data = JSON.parse(message.utf8Data)
       if (data.pairingResponse) {
         mqttBridge.respondToPairing(data.pairingResponse)
+      } else if (data.eqSet) {
+        mqttBridge.publishEqSet(data.eqSet.band, data.eqSet.gain)
       }
     } catch (e) {
       console.log(new Date() + ' Failed to parse websocket message: ' + e.message)
@@ -108,6 +115,10 @@ port.on('data', function (data) {
     if (key === 'station' && connection != null) {
       const radioSetting = Math.round((Number(value) / STATION_ADC_MAX) * 360)
       connection.sendUTF(JSON.stringify({ radioSetting }))
+    }
+
+    if (key === 'multi1' && connection != null) {
+      connection.sendUTF(JSON.stringify({ mode: Number(publishedValue) }))
     }
   })
 })
