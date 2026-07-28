@@ -66,6 +66,39 @@ effect, with no extra logic needed. AirPlay and Bluetooth volume are
 deliberately left alone; each is controlled solely by whatever's
 connected to it.
 
+## Station dial
+
+The tuning-dial knob on `philco-ui` splits its usable range into 10 equal
+"stations," each independently configured in
+`/etc/philco-station/regions.json` as either a specific Spotify URI
+(playlist/album/track/artist — starts in shuffle) or quiet background
+"static." One region is flagged `"default": true` and starts playing
+automatically as soon as [`station-agent.py`](station-agent.py) /
+[`station-agent.service`](station-agent.service) boots — no dial movement
+required, just like a real radio powering on. Moving the dial to another
+station takes over the shared audio output the same way any other source
+does; turning it back and forth quickly between two static gaps doesn't
+restart the noise, but moving between two different stations does switch
+content immediately. Turning the volume knob down to off pauses playback;
+turning it back on resumes whatever station the dial is currently on.
+
+This dial's potentiometer doesn't span the ADC's full theoretical range
+the way the volume knob's does — its calibration
+(`STATION_RAW_MIN`/`STATION_RAW_MAX` in `station-agent.py`, mirrored in
+`api/server.js` for the touchscreen pointer) is a hardware constant, not
+something to edit casually; see `AGENT_SCRATCHPAD.md` if the dial ever
+seems to stop short of reaching all 10 stations again.
+
+To change what's assigned to a station, edit
+`/etc/philco-station/regions.json` (see
+[`station-regions.example.json`](station-regions.example.json) for the
+shape — ship it with `REPLACE_ME` placeholder URIs, so it must be edited
+with real ones before this does anything useful) and restart the
+service:
+```
+sudo systemctl restart station-agent.service
+```
+
 ## Equalizer
 
 A 10-band ALSA equalizer sits in the audio path for all sources, to

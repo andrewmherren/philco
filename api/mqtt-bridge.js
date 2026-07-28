@@ -25,6 +25,13 @@ const EQ_STATE_TOPIC_PREFIX = 'philco/eq/state'
 // the Connect protocol, no bridging needed for that direction.
 const SPOTIFY_VOLUME_SET_TOPIC = 'philco/spotify/volume/set'
 
+// radio-pi/station-agent.py owns this -- fired when volume crosses from
+// off to on, so it re-applies whatever region is/should be current even
+// though the dial itself hasn't moved (a plain station-topic republish
+// doesn't work for this: same region index == station-agent's own
+// no-op check, so it needs an explicit "please re-apply now" signal).
+const STATION_REASSERT_TOPIC = 'philco/station/reassert'
+
 const DEVICE = {
   identifiers: ['philco-ui-controls'],
   name: 'Philco UI Controls',
@@ -41,7 +48,13 @@ const CONTROLS = {
 function createBridge({ host, port, username, password, onPairingUpdate, onEqUpdate }) {
   if (!host) {
     console.log(new Date() + ' MQTT bridge disabled: no host configured')
-    return { publish() {}, respondToPairing() {}, publishEqSet() {}, publishSpotifyVolumeSet() {} }
+    return {
+      publish() {},
+      respondToPairing() {},
+      publishEqSet() {},
+      publishSpotifyVolumeSet() {},
+      publishStationReassert() {},
+    }
   }
 
   const client = mqtt.connect(`mqtt://${host}:${port || 1883}`, {
@@ -101,7 +114,10 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
   return {
     publish(key, value) {
       if (!CONTROLS[key] || !client.connected) return
-      client.publish(`${TOPIC_PREFIX}/${key}`, String(value))
+      // Retained so a fresh subscriber (e.g. a radio-Pi daemon restarting)
+      // can learn the physical control's last-known position immediately,
+      // instead of only finding out the next time it moves.
+      client.publish(`${TOPIC_PREFIX}/${key}`, String(value), { retain: true })
     },
     respondToPairing(response) {
       if (!client.connected) return
@@ -114,6 +130,10 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
     publishSpotifyVolumeSet(volume) {
       if (!client.connected) return
       client.publish(SPOTIFY_VOLUME_SET_TOPIC, String(volume))
+    },
+    publishStationReassert() {
+      if (!client.connected) return
+      client.publish(STATION_REASSERT_TOPIC, '1')
     },
   }
 }

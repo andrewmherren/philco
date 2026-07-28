@@ -12,6 +12,13 @@
 # bt-agent.py's pattern does not (its loop_start() is skipped entirely if
 # the initial connect() call raises).
 #
+# Also periodically re-applies the stored state (see REAPPLY_INTERVAL_
+# SECONDS below) as a safety net -- a user reported EQ settings appearing
+# reset after a Pi reboot; state.json and the boot-time apply both looked
+# correct on inspection, so the periodic re-apply exists to bound how
+# long any such drift (from this or an unconfirmed cause) can last,
+# rather than relying on a single one-shot apply at startup being final.
+#
 # IMPORTANT: alsaequal's LADSPA host keeps its live band-gain state in a
 # file at $HOME/.alsaequal.bin -- NOT in the ALSA config or anywhere
 # global. That means this agent only actually controls what go-librespot
@@ -28,6 +35,7 @@
 import json
 import os
 import subprocess
+import threading
 
 import paho.mqtt.client as mqtt
 
@@ -35,6 +43,13 @@ TOPIC_SET_PREFIX = "philco/eq/set"
 TOPIC_STATE_PREFIX = "philco/eq/state"
 STATE_FILE = "/var/lib/philco-eq/state.json"
 AMIXER_DEVICE = "eq"
+
+# Belt-and-suspenders: periodically re-apply the stored state in case
+# something outside our control (e.g. alsaequal's shared gain-state file
+# possibly being touched by the first real PCM open after boot) resets
+# the live values independently of this agent. Cheap no-op if nothing
+# changed; bounds how long any such reset could last to one interval.
+REAPPLY_INTERVAL_SECONDS = 60
 
 # numid order confirmed via `amixer -D eq controls` after installing
 # libasound2-plugin-equal 0.6-8 -- do not reorder without reconfirming,
@@ -111,12 +126,23 @@ def apply_band(band, gain):
 
 state = load_state()
 
+
+def apply_all_state():
+    for band, gain in state.items():
+        try:
+            apply_band(band, gain)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to apply band {band}={gain}: {e.stderr.decode().strip()}")
+
+
+def periodic_reapply():
+    apply_all_state()
+    threading.Timer(REAPPLY_INTERVAL_SECONDS, periodic_reapply).start()
+
+
 print("Applying stored EQ state before connecting to MQTT")
-for band, gain in state.items():
-    try:
-        apply_band(band, gain)
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to apply band {band}={gain}: {e.stderr.decode().strip()}")
+apply_all_state()
+threading.Timer(REAPPLY_INTERVAL_SECONDS, periodic_reapply).start()
 
 
 def publish_all_state():

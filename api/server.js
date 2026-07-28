@@ -76,13 +76,24 @@ wsServer.on('request', request => {
 const CONTROL_TYPES = { 0: 'station', 1: 'volume', 2: 'multi1' }
 
 // The station potentiometer is read with analogRead() on a Teensy 2.0
-// (10-bit ADC, PIN_F0/PIN_B6-style AVR pin names in controls.ino), so raw
-// values run 0-1023. Map that to degrees for the UI's pointer rotation.
-const STATION_ADC_MAX = 1023
+// (10-bit ADC, PIN_F0/PIN_B6-style AVR pin names in controls.ino). Unlike
+// the volume knob, this pot does NOT span the full 0-1023 ADC range --
+// confirmed via this file's own serial log across a full physical dial
+// sweep: raw values only ever ranged ~12-574. Must match radio-pi/
+// station-agent.py's own STATION_RAW_MIN/STATION_RAW_MAX, since both
+// derive their sense of "how far around" from the same raw ADC value.
+const STATION_RAW_MIN = 0
+const STATION_RAW_MAX = 600
 
-// Same ADC, same 0-1023 range, but the volume knob maps to go-librespot's
-// own volume scale (0-100, its `volume_steps` default) instead of degrees.
+// Volume's own ADC range is close enough to the full 0-1023 (observed
+// 14-984) that it isn't worth a similar correction.
 const VOLUME_ADC_MAX = 1023
+
+// Must match radio-pi/station-agent.py's own VOLUME_OFF_THRESHOLD -- both
+// treat this same 0-100 scale the same way as "the knob's off click-stop".
+const VOLUME_OFF_THRESHOLD = 2
+
+let lastSpotifyVolume = null
 
 // The mode switch's "3" position (multi1_2_pin / PIN_F5 in controls.ino)
 // has a hardware fault -- that pin never reads LOW, so the Arduino always
@@ -117,7 +128,8 @@ port.on('data', function (data) {
     mqttBridge.publish(key, publishedValue)
 
     if (key === 'station' && connection != null) {
-      const radioSetting = Math.round((Number(value) / STATION_ADC_MAX) * 360)
+      const clamped = Math.max(STATION_RAW_MIN, Math.min(STATION_RAW_MAX, Number(value)))
+      const radioSetting = Math.round(((clamped - STATION_RAW_MIN) / (STATION_RAW_MAX - STATION_RAW_MIN)) * 360)
       connection.sendUTF(JSON.stringify({ radioSetting }))
     }
 
@@ -128,6 +140,13 @@ port.on('data', function (data) {
     if (key === 'volume') {
       const spotifyVolume = Math.round((Number(value) / VOLUME_ADC_MAX) * 100)
       mqttBridge.publishSpotifyVolumeSet(spotifyVolume)
+
+      const wasOff = lastSpotifyVolume !== null && lastSpotifyVolume <= VOLUME_OFF_THRESHOLD
+      const isNowOn = spotifyVolume > VOLUME_OFF_THRESHOLD
+      if (wasOff && isNowOn) {
+        mqttBridge.publishStationReassert()
+      }
+      lastSpotifyVolume = spotifyVolume
     }
   })
 })

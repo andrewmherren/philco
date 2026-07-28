@@ -14,6 +14,16 @@
 #   this turned out much simpler than first planned.
 # AirPlay/Bluetooth volume is deliberately left untouched -- their own
 # protocol-level remote volume stays in charge, independent of this.
+#
+# Debounces rapid-fire knob movement (a smooth turn can generate many MQTT
+# messages in quick succession) and retries transient failures -- found
+# go-librespot's local API can itself become temporarily unresponsive
+# (`Read timed out`) under a burst of rapid requests, silently dropping
+# both volume-set and pause calls with no fallback. Debouncing reduces
+# how often that burst happens in the first place; retrying covers
+# whatever transient failures still occur.
+import threading
+import time
 import os
 
 import paho.mqtt.client as mqtt
@@ -21,8 +31,38 @@ import requests
 
 TOPIC_SET = "philco/spotify/volume/set"
 VOLUME_API_URL = "http://127.0.0.1:3678/player/volume"
+PAUSE_API_URL = "http://127.0.0.1:3678/player/pause"
 VOLUME_MIN = 0
 VOLUME_MAX = 100
+DEBOUNCE_SECONDS = 0.15
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.5
+
+# Must match server.js/station-agent.py's own off-threshold. Using
+# /player/pause here (not /player/stop) for the same reason station-agent.py
+# does: pause hands off the ALSA device without disconnecting the whole
+# Spotify Connect session, which /player/stop would do -- turning the knob
+# down shouldn't force a phone to go re-select "philco" as its output
+# device again next time.
+VOLUME_OFF_THRESHOLD = 2
+
+last_volume = None
+pending_volume = None
+debounce_timer = None
+state_lock = threading.Lock()
+
+
+def post_with_retry(url, json_body, description):
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            requests.post(url, json=json_body, timeout=3)
+            return True
+        except requests.RequestException as e:
+            if attempt == RETRY_ATTEMPTS - 1:
+                print(f"Failed to {description} after {RETRY_ATTEMPTS} attempts: {e}")
+            else:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    return False
 
 
 def load_env(path):
@@ -61,7 +101,27 @@ def on_disconnect(client, userdata, rc):
     print(f"MQTT disconnected, rc={rc}")
 
 
+def apply_pending_volume():
+    global last_volume, pending_volume, debounce_timer
+    with state_lock:
+        volume = pending_volume
+        debounce_timer = None
+    if volume is None:
+        return
+
+    post_with_retry(
+        VOLUME_API_URL, {"volume": volume, "relative": False}, f"set go-librespot volume to {volume}"
+    )
+
+    was_on = last_volume is not None and last_volume > VOLUME_OFF_THRESHOLD
+    is_now_off = volume <= VOLUME_OFF_THRESHOLD
+    if was_on and is_now_off:
+        post_with_retry(PAUSE_API_URL, None, "pause go-librespot on volume-off")
+    last_volume = volume
+
+
 def on_message(client, userdata, msg):
+    global pending_volume, debounce_timer
     try:
         volume = round(float(msg.payload.decode().strip()))
     except ValueError:
@@ -69,10 +129,12 @@ def on_message(client, userdata, msg):
         return
     volume = max(VOLUME_MIN, min(VOLUME_MAX, volume))
 
-    try:
-        requests.post(VOLUME_API_URL, json={"volume": volume, "relative": False}, timeout=2)
-    except requests.RequestException as e:
-        print(f"Failed to set go-librespot volume to {volume}: {e}")
+    with state_lock:
+        pending_volume = volume
+        if debounce_timer is not None:
+            debounce_timer.cancel()
+        debounce_timer = threading.Timer(DEBOUNCE_SECONDS, apply_pending_volume)
+        debounce_timer.start()
 
 
 mqtt_client.on_connect = on_connect
