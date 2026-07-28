@@ -51,7 +51,20 @@ sudo amixer -c0 sset Digital <N>%,<N>%   # e.g. 70%; lower = quieter
 sudo alsactl store                        # persist across reboots
 ```
 Change is live — no restart needed to test. `amixer -c0 sget Digital`
-shows the current setting.
+shows the current setting. This is a hardware ceiling, not a day-to-day
+control — see "Spotify volume knob" below for that.
+
+## Spotify volume knob
+
+`philco-ui`'s physical volume knob is wired to Spotify's own volume only
+(via [`spotify-volume-agent.py`](spotify-volume-agent.py) /
+[`spotify-volume-agent.service`](spotify-volume-agent.service), POSTing
+to `go-librespot`'s local API at `127.0.0.1:3678`). Changing volume from
+the Spotify app itself works too and takes effect immediately — both
+just set the same underlying value, so whichever was touched last is in
+effect, with no extra logic needed. AirPlay and Bluetooth volume are
+deliberately left alone; each is controlled solely by whatever's
+connected to it.
 
 ## Equalizer
 

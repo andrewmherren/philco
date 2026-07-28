@@ -19,6 +19,12 @@ const PAIRING_RESPONSE_TOPIC = 'philco/pairing/response'
 const EQ_SET_TOPIC_PREFIX = 'philco/eq/set'
 const EQ_STATE_TOPIC_PREFIX = 'philco/eq/state'
 
+// The radio Pi's spotify-volume-agent.py owns this -- knob-driven volume
+// changes only, forwarded straight to go-librespot's own volume (0-100).
+// Changes from the Spotify app itself reach go-librespot directly via
+// the Connect protocol, no bridging needed for that direction.
+const SPOTIFY_VOLUME_SET_TOPIC = 'philco/spotify/volume/set'
+
 const DEVICE = {
   identifiers: ['philco-ui-controls'],
   name: 'Philco UI Controls',
@@ -35,7 +41,7 @@ const CONTROLS = {
 function createBridge({ host, port, username, password, onPairingUpdate, onEqUpdate }) {
   if (!host) {
     console.log(new Date() + ' MQTT bridge disabled: no host configured')
-    return { publish() {}, respondToPairing() {}, publishEqSet() {} }
+    return { publish() {}, respondToPairing() {}, publishEqSet() {}, publishSpotifyVolumeSet() {} }
   }
 
   const client = mqtt.connect(`mqtt://${host}:${port || 1883}`, {
@@ -104,6 +110,10 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
     publishEqSet(band, gain) {
       if (!client.connected) return
       client.publish(`${EQ_SET_TOPIC_PREFIX}/${band}`, String(gain))
+    },
+    publishSpotifyVolumeSet(volume) {
+      if (!client.connected) return
+      client.publish(SPOTIFY_VOLUME_SET_TOPIC, String(volume))
     },
   }
 }

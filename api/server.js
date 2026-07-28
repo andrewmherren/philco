@@ -80,6 +80,10 @@ const CONTROL_TYPES = { 0: 'station', 1: 'volume', 2: 'multi1' }
 // values run 0-1023. Map that to degrees for the UI's pointer rotation.
 const STATION_ADC_MAX = 1023
 
+// Same ADC, same 0-1023 range, but the volume knob maps to go-librespot's
+// own volume scale (0-100, its `volume_steps` default) instead of degrees.
+const VOLUME_ADC_MAX = 1023
+
 // The mode switch's "3" position (multi1_2_pin / PIN_F5 in controls.ino)
 // has a hardware fault -- that pin never reads LOW, so the Arduino always
 // falls through to its "nothing pressed" default (0) at that position
@@ -119,6 +123,11 @@ port.on('data', function (data) {
 
     if (key === 'multi1' && connection != null) {
       connection.sendUTF(JSON.stringify({ mode: Number(publishedValue) }))
+    }
+
+    if (key === 'volume') {
+      const spotifyVolume = Math.round((Number(value) / VOLUME_ADC_MAX) * 100)
+      mqttBridge.publishSpotifyVolumeSet(spotifyVolume)
     }
   })
 })
