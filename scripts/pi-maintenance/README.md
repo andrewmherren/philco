@@ -3,9 +3,19 @@
 Caps `systemd-journald`'s size and adds a periodic disk-space check,
 because these devices run unattended for a year or more between visits —
 without a cap, journald can quietly fill a small SD card over that much
-uptime. Full incident history and root-cause details (including a DNS/NTP
-issue that surfaced alongside it) are in
-[AGENT_SCRATCHPAD.md](../../AGENT_SCRATCHPAD.md) at the repo root.
+uptime.
+
+Built after a real incident: `philco-ui`'s ~7.4G card filled to 100%
+(journald with no cap, plus an Arduino IDE install and this repo's own
+checkout, over roughly a year of uptime), which broke `sudo` and package
+installs and nearly corrupted `/etc/sudoers.d` mid-write. Recovering also
+turned up two side effects of having run disk-full for a while:
+`systemd-timesyncd` crash-looping, and `/etc/resolv.conf` sitting empty
+since first boot (dhcpcd's DNS record wasn't being flushed to disk),
+which had silently broken both DNS and NTP sync. Both cleared up once
+disk space was available again and the relevant services were restarted
+— worth knowing if a Pi's clock or DNS ever seem wrong for no reason:
+check `df -h /` first, even if the symptom doesn't look disk-related.
 
 ## What this installs
 

@@ -40,6 +40,11 @@ layers, so the same recipe works on any device shape —
 - [x] Control bridge: `philco-ui`'s Arduino controls now publish to MQTT
 - [x] Home Assistant's Spotify integration confirmed working end-to-end
 - [x] Confirmed Home Assistant install type (Home Assistant OS)
+- [x] Bluetooth and AirPlay added as additional volume-gated audio
+      sources on the radio Pi, arbitrated against Spotify/static for the
+      shared output — see [radio-pi/README.md](../radio-pi/README.md)
+      (beyond the original Spotify-Connect-only requirement above, but
+      built on the same audio-backend layer)
 - [ ] Music Assistant add-on (for the broader multiroom/unification goal
       — not required for the core scene/playlist requirement)
 - [ ] Wire Home Assistant scenes/automations to the control-bridge MQTT
@@ -48,7 +53,7 @@ layers, so the same recipe works on any device shape —
 
 ## More detail
 
-Full reasoning for each decision, debugging history, gotchas, and
-detailed open-issue notes live in
-[AGENT_SCRATCHPAD.md](../AGENT_SCRATCHPAD.md) at the repo root, not here
-— this file stays a quick, current-status reference.
+Full reasoning for each decision lives in
+[radio-pi/README.md](../radio-pi/README.md) and the main
+[README.md](../README.md) — this file stays a quick, current-status
+reference.

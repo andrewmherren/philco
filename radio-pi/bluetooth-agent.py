@@ -23,17 +23,17 @@
 # whether the adapter happens to be discoverable/pairable right now.
 #
 # Also arbitrates the shared ALSA device with station-agent.py (Spotify/
-# static), per explicit request -- "last action wins" in both directions:
-# watches every connected device's org.bluez.MediaPlayer1 for its Status
-# actually becoming "playing" (not just "connected" -- a phone can be
-# connected without playing anything) and publishes that as
-# philco/bluetooth/playback, which station-agent.py reacts to by pausing
-# whatever Spotify/static region is current. The reverse direction
-# (station-agent.py about to start Spotify/static) is a request, not a
-# push: it publishes philco/bluetooth/pause, and this agent responds by
-# sending an actual AVRCP pause to whatever's currently playing over
-# Bluetooth, so the phone's own player visibly pauses too instead of just
-# silently losing the ALSA device. See AGENT_SCRATCHPAD.md.
+# static) and airplay-agent.py, per explicit request -- "last one active
+# wins," N-way: watches every connected device's org.bluez.MediaPlayer1
+# for its Status actually becoming "playing" (not just "connected" -- a
+# phone can be connected without playing anything) and publishes that as
+# philco/audio/bluetooth/active, which every other source-owning agent
+# subscribes to and reacts to by pausing/stopping itself. The reverse
+# direction (some other source becoming active) is handled by subscribing
+# to *their* philco/audio/<source>/active topics and, on either, sending
+# an actual AVRCP pause to whatever's currently playing over Bluetooth --
+# so the phone's own player visibly pauses too, not just silently loses
+# the ALSA device. See AGENT_SCRATCHPAD.md.
 import os
 import threading
 
@@ -44,8 +44,10 @@ import paho.mqtt.client as mqtt
 from gi.repository import GLib
 
 TOPIC_VOLUME = "philco/ui/controls/volume"
-TOPIC_BLUETOOTH_PLAYBACK = "philco/bluetooth/playback"
-TOPIC_BLUETOOTH_PAUSE = "philco/bluetooth/pause"
+# N-way arbitration topics -- see the matching comment in station-agent.py.
+TOPIC_SPOTIFY_ACTIVE = "philco/audio/spotify/active"
+TOPIC_BLUETOOTH_ACTIVE = "philco/audio/bluetooth/active"
+TOPIC_AIRPLAY_ACTIVE = "philco/audio/airplay/active"
 ADAPTER_PATH = "/org/bluez/hci0"
 AGENT_PATH = "/philco/btagent"
 MEDIA_PLAYER_IFACE = "org.bluez.MediaPlayer1"
@@ -144,7 +146,7 @@ def decide_startup_state():
 
 def publish_playback_state(is_playing):
     print(f"Bluetooth playback {'started' if is_playing else 'stopped'}")
-    mqtt_client.publish(TOPIC_BLUETOOTH_PLAYBACK, "playing" if is_playing else "stopped")
+    mqtt_client.publish(TOPIC_BLUETOOTH_ACTIVE, "playing" if is_playing else "stopped")
 
 
 def update_playback_state(path, status):
@@ -178,7 +180,7 @@ def pause_bluetooth_playback():
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("MQTT connected")
-        client.subscribe([(TOPIC_VOLUME, 0), (TOPIC_BLUETOOTH_PAUSE, 0)])
+        client.subscribe([(TOPIC_VOLUME, 0), (TOPIC_SPOTIFY_ACTIVE, 0), (TOPIC_AIRPLAY_ACTIVE, 0)])
         threading.Timer(STARTUP_SETTLE_SECONDS, decide_startup_state).start()
     else:
         print(f"MQTT connect refused, rc={rc} (0=ok, 4=bad user/pass, 5=not authorized)")
@@ -191,8 +193,9 @@ def on_disconnect(client, userdata, rc):
 def on_message(client, userdata, msg):
     global last_raw_volume, volume_timer
 
-    if msg.topic == TOPIC_BLUETOOTH_PAUSE:
-        pause_bluetooth_playback()
+    if msg.topic in (TOPIC_SPOTIFY_ACTIVE, TOPIC_AIRPLAY_ACTIVE):
+        if msg.payload.decode().strip() == "playing":
+            pause_bluetooth_playback()
         return
 
     try:

@@ -3,9 +3,9 @@
 A second, separate Raspberry Pi (hostname `philco`, `192.168.68.65`) that
 lives in the same cabinet as the touchscreen UI Pi (`philco-ui`, see the
 main [README.md](../README.md)) but runs none of this repo's code. Its job
-is to be a Spotify Connect / Bluetooth audio receiver for the cabinet's
-speaker. It is **not** a prebuilt "radio" image — it's stock Raspberry Pi
-OS with a few things installed on top.
+is to be a Spotify Connect / Bluetooth / AirPlay audio receiver for the
+cabinet's speaker. It is **not** a prebuilt "radio" image — it's stock
+Raspberry Pi OS with a few things installed on top.
 
 ## Hardware
 
@@ -23,20 +23,75 @@ OS with a few things installed on top.
 - **Bluetooth (A2DP)**: `bluez` for pairing/connections, `bluez-alsa`
   (`bluealsa` + `bluealsa-aplay`) to get the actual audio into ALSA —
   see "Bluetooth" below
+- **AirPlay**: `shairport-sync`, config at `/etc/shairport-sync.conf` —
+  see "AirPlay" below
 - **Volume ceiling**: hardware gain register capped so nothing can play
   dangerously loud — see "Adjusting max volume" below
 - **Equalizer**: `libasound2-plugin-equal` (alsaequal), a 10-band ALSA
   EQ sitting in front of `hw:0` for all sources — see "Equalizer" below
 
+## Setting up go-librespot from scratch
+
+`go-librespot` was chosen over the simpler `raspotify` package because
+`raspotify` only ran in Spotify's Zeroconf/discovery mode — invisible to
+Home Assistant's Spotify integration (which queries Spotify's Web API
+device list, not local mDNS) unless something on the LAN actively
+"woke" it first. `go-librespot` keeps a real persistent login instead, so
+it's always visible to HA. If this ever needs to be rebuilt (new SD card,
+replacement device, etc.):
+1. Download the release asset for Raspberry Pi OS:
+   `*_armv6_rpi.tar.gz` from
+   [github.com/devgianlu/go-librespot/releases](https://github.com/devgianlu/go-librespot/releases)
+   (works fine on 32-bit `armv7l` too — Go ARM builds are backwards
+   compatible).
+2. Config at `/etc/go-librespot/config.yml`: `audio_backend: alsa`,
+   `audio_device: default`, `credentials.type: interactive`,
+   `zeroconf_enabled: true`, `device_name: philco`.
+3. `go-librespot.service` needs `Environment=HOME=/root` explicitly —
+   without it, the binary fails with `"neither $XDG_CONFIG_HOME nor
+   $HOME are defined"` even when `--config_dir` is passed, since bare
+   systemd units don't populate `$HOME` on their own.
+4. First run needs a one-time interactive OAuth login: start the binary
+   and it prints a `https://accounts.spotify.com/authorize?...` URL with
+   a `redirect_uri=http://127.0.0.1:<random-port>/login`. Open that URL
+   in any browser signed into the Spotify account you want (same account
+   Home Assistant's Spotify integration should use) — it'll redirect to
+   `127.0.0.1:<port>` and fail to load in your browser (that address
+   means "whichever machine opened the link," not the Pi — this is
+   expected). Copy the failed URL's full query string and `curl` it
+   *from an SSH session on the Pi itself* to deliver the code to the
+   daemon's local callback listener. Credentials are cached afterward and
+   reused silently on every future start/reboot — this step is only
+   needed once, ever, unless the credentials cache is wiped.
+
 ## Adjusting max volume
 
+This is a **hardware ceiling**, separate from and layered underneath the
+day-to-day volume knob (see "Spotify volume knob" below) — nothing else
+(`go-librespot`, `bluealsa`, `shairport-sync`) touches this control, they
+all do their own volume purely in software *above* it, so this is the one
+place that can never be exceeded regardless of source or app-side volume.
+It exists because the HiFiBerry AMP2's gain register defaults to full
+(0dB, no attenuation), which is genuinely dangerously loud for the
+speakers in this cabinet.
+
+Check the current level:
 ```
-sudo amixer -c0 sset Digital <N>%,<N>%   # e.g. 70%; lower = quieter
-sudo alsactl store                        # persist across reboots
+sudo amixer -c0 sget Digital
 ```
-Change is live — no restart needed to test. `amixer -c0 sget Digital`
-shows the current setting. This is a hardware ceiling, not a day-to-day
-control — see "Spotify volume knob" below for that.
+Change it:
+```
+sudo amixer -c0 sset Digital <N>%,<N>%   # e.g. 70%; lower = quieter, higher = louder
+sudo alsactl store                        # persist across reboots (auto-reapplied by alsa-restore.service)
+```
+Change is live — no restart needed to test, only `alsactl store` once
+you're happy with a level. The register is linear, 0.5dB per step over
+0–207 steps (so roughly 2% ≈ 1dB) — `207/207` (100%) is 0dB/no
+attenuation (max, avoid), `0/207` is silence. As of 2026-08-04 this was
+set to **67% (139/207, -34dB)** — a fairly deep cut; if it's sounding too
+quiet, raising it in small steps (e.g. try 80% ≈ -21dB) and listening at
+a normal distance from the speaker is the way to dial it in — there's no
+"correct" number, just "as loud as feels safe for these speakers."
 
 ## Spotify volume knob
 
@@ -77,8 +132,10 @@ This dial's potentiometer doesn't span the ADC's full theoretical range
 the way the volume knob's does — its calibration
 (`STATION_RAW_MIN`/`STATION_RAW_MAX` in `station-agent.py`, mirrored in
 `api/server.js` for the touchscreen pointer) is a hardware constant, not
-something to edit casually; see `AGENT_SCRATCHPAD.md` if the dial ever
-seems to stop short of reaching all the stations again.
+something to edit casually — if the dial ever seems to stop short of
+reaching all the stations again, that pair is the first thing to
+re-measure (a full physical sweep, reading the raw values `server.js`
+logs) rather than assume the config is wrong.
 
 To change what's assigned to a station, or add/remove stations entirely,
 edit `/etc/philco-station/regions.json` (see
@@ -110,23 +167,83 @@ while the radio is on — is automatic too. The only real security boundary
 here is physical: a phone can only find or pair with the radio while
 someone has the volume on.
 
+**Gotcha if pairing ever fails with a generic "unsuccessful" message and
+no useful log on either the radio or the pairing agent**: BlueZ refuses
+to silently re-pair a device it already has an old key for via Just
+Works (anti-downgrade-attack protection) — rejected at the kernel/mgmt
+level before the pairing agent is even consulted, which is why nothing
+useful shows up in its log. This is a real, hit-in-practice failure mode
+(not hypothetical) whenever a phone and the radio end up with an
+asymmetric bond state — an interrupted pairing attempt, the phone
+forgetting the device, or this SD card ever getting restored from an
+older backup. Fix, both device-only settings not tracked in this repo:
+remove the stale record (`sudo rm -rf
+/var/lib/bluetooth/<adapter-mac>/<phone-mac>/`, found via `bluetoothctl
+devices` or by matching the phone's MAC) and confirm
+`/etc/bluetooth/main.conf`'s `[General]` section has
+`JustWorksRepairing = always` (not the Raspbian default, `never`) so this
+can't recur for *any* device. If a failure like this ever needs deeper
+diagnosis, `bluetoothd`'s own journal is often useless (as above) — a raw
+capture, `sudo btmon -w /tmp/capture.log` (run it for several minutes,
+pairing attempts happen fast but getting to the physical radio to
+attempt one doesn't), read back with `sudo btmon -r /tmp/capture.log`,
+shows the actual HCI/mgmt-layer conversation regardless of whether
+`bluetoothd`'s business logic ever got involved.
+
 Actual audio comes from `bluealsa` + `bluealsa-aplay`
 (`bluealsa.service` / `bluealsa-aplay.service`, both from the
 `bluez-alsa-utils` package), which pipe A2DP audio from whatever phone is
 connected straight into the same shared ALSA `default` device
-`go-librespot`/`sox` use — same EQ, same hardware volume ceiling. Only
-one source can hold that device at a time (no dmix, same as
-Spotify/static), and whichever one most recently started wins:
-- A phone starting playback over Bluetooth automatically pauses whatever
-  Spotify station/static was playing.
-- Turning the station dial (to a different station) while Bluetooth is
-  playing sends an actual AVRCP pause to the phone and takes the speaker
-  back for Spotify/static.
+`go-librespot`/`sox`/`shairport-sync` use — same EQ, same hardware volume
+ceiling. Only one source can hold that device at a time (no dmix), and
+whichever one most recently started wins — see "Source arbitration"
+below for the full three-way picture with AirPlay.
 
-This is `bluetooth-agent.py`/`station-agent.py` talking to each other
-over MQTT (`philco/bluetooth/playback`, `philco/bluetooth/pause`) — see
-AGENT_SCRATCHPAD.md for the details. Bluetooth going quiet on its own
-doesn't automatically resume Spotify; only an actual dial move does.
+## AirPlay
+
+Same volume-gating rule as Bluetooth, via
+[`airplay-agent.py`](airplay-agent.py) /
+[`airplay-agent.service`](airplay-agent.service): `shairport-sync`
+(AirPlay receiver) only runs while the volume knob is on. Unlike
+Bluetooth there's no separate "powered/discoverable" adapter state to
+toggle — shairport-sync only advertises over mDNS and accepts connections
+while its own process is running, so this agent's whole job is starting
+and stopping `shairport-sync.service`. Stopping it both removes the
+AirPlay listing from nearby devices' pickers and immediately drops any
+active session — there's no graceful "just disconnect the client"
+command in shairport-sync, so a stop (or restart, for the arbitration
+case below) is also how a lost arbitration round gets enforced.
+
+`shairport-sync` detects its own "actually playing" moment (needed for
+the arbitration below) via its `run_this_before_play_begins`/
+`run_this_after_play_ends` hooks in `/etc/shairport-sync.conf`
+(device-only, not tracked in this repo) — but that config runs as
+shairport-sync's own unprivileged user, which has no access to the MQTT
+credentials it needs to actually publish anything. See
+[`airplay-notify.sh`](airplay-notify.sh)'s own header comment for the
+narrow `sudo` bridge that solves this (`/etc/sudoers.d/philco-airplay`,
+device-only, grants exactly two argument-pinned invocations of that
+script — nothing broader).
+
+## Source arbitration
+
+Spotify, Bluetooth, and AirPlay share one ALSA output — only one can
+actually be producing sound at a time — and "last one to start wins":
+- A phone starting playback over Bluetooth, or a device connecting and
+  playing over AirPlay, pauses whatever Spotify station/static was
+  playing.
+- Turning the station dial to a different station takes the speaker back
+  from Bluetooth (sends an actual AVRCP pause to the phone) or AirPlay
+  (restarts `shairport-sync`, dropping the session).
+- Bluetooth and AirPlay also take over from *each other* the same way.
+
+This is `station-agent.py`/`bluetooth-agent.py`/`airplay-agent.py` all
+talking over the same small set of MQTT topics
+(`philco/audio/<source>/active` — each agent publishes on its own topic
+the instant it starts playing, and subscribes to the other two, pausing/
+stopping itself on either). A source going quiet on its own never
+automatically resumes another; only an actual new action (dial move,
+phone connecting) does.
 
 ## Equalizer
 
@@ -140,19 +257,56 @@ To adjust a band by hand instead:
 ```
 alsamixer -D eq
 # or non-interactively, e.g.:
-amixer -D eq cset numid=4 40,40   # numid=4 is the 250 Hz band
+sudo amixer -D eq cset numid=4 40,40   # numid=4 is the 250 Hz band -- see below on why sudo matters here
 ```
 Changes made this way aren't reflected on the touchscreen and won't
 survive a reboot — use the touchscreen (or publish to
 `philco/eq/set/<band>` over MQTT) for anything that should stick.
 
+Controls are `numid=1..10`, one per band in order 31 Hz, 63 Hz, 125 Hz,
+250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz. Range is **0-100, not
+dB** — 66 is flat/0dB.
+
+**Gotcha worth knowing before debugging "the EQ isn't doing anything":**
+`alsaequal` (the LADSPA plugin behind the `eq` ALSA device) keeps its
+live band-gain values in a file at `$HOME/.alsaequal.bin` — **per-user,
+not a single system-wide store.** A command run as a different effective
+user (or the same user without `sudo`, since that changes `$HOME`) reads
+or writes a *different* copy of the EQ state and will silently look like
+it did nothing to actual playback, even though `amixer` reports success.
+Every real audio process on this Pi (`go-librespot`, `sox`,
+`bluealsa-aplay`, `shairport-sync`, `eq-agent.service`) is deliberately
+configured to resolve `$HOME=/root` (either running as root directly, or
+— for the two that run as their own unprivileged user —
+`Environment=HOME=/root` plus a narrow ACL granting that user `rw` on
+`/root/.alsaequal.bin` specifically). So: always `sudo` when checking or
+setting EQ values by hand, or you'll be reading/writing a phantom copy
+nothing else ever sees.
+
+## MQTT
+
+Every agent on this Pi (`station-agent.py`, `bluetooth-agent.py`,
+`airplay-agent.py`, `eq-agent.py`, `spotify-volume-agent.py`) talks to
+the same Mosquitto broker (the Home Assistant add-on), for both
+control-topic input from `philco-ui` and the source-arbitration topics
+above. Broker host/port/credentials live in `/etc/philco-mqtt/.env`
+(mode `600`) — a matching file exists on `philco-ui` with its own scoped
+login; each Pi has its own narrow, single-purpose Mosquitto login rather
+than a shared one, so either can be revoked independently.
+
+To test connectivity by hand without printing the credentials to a
+terminal history:
+```
+sudo apt-get install -y mosquitto-clients   # one-time
+sudo bash -c 'set -a; source /etc/philco-mqtt/.env; set +a; mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -t test -m ping -d'
+```
+The `CONNACK` code in the debug output is the clearest signal: `0` =
+success, `5` = not authorized. Home Assistant add-ons (including
+Mosquitto) need an explicit restart to pick up a config change like a new
+login — easy to forget, and looks identical to "wrong password" from the
+client side.
+
 ## Remote access
 
 Same toggleable `claude-agent` SSH account as the UI Pi — see
 [scripts/remote-access/](../scripts/remote-access/).
-
-## More detail
-
-Root causes, debugging history, gotchas, and current open issues are in
-[AGENT_SCRATCHPAD.md](../AGENT_SCRATCHPAD.md) at the repo root, not here
-— this file stays a quick human-facing reference.
