@@ -7,8 +7,6 @@ class App extends React.Component {
   static updateAmount = 1
   state = {
     rotation: 0,
-    pairingCode: '',
-    pairingState: 'idle',
     mode: null,
     eq: {}
   }
@@ -22,15 +20,6 @@ class App extends React.Component {
     if (this.client && this.client.readyState === this.client.OPEN) {
       this.client.send(JSON.stringify({ eqSet: { band, gain } }))
     }
-  }
-  sendPairingResponse = response => {
-    if (this.client && this.client.readyState === this.client.OPEN) {
-      this.client.send(JSON.stringify({ pairingResponse: response }))
-    }
-    // Return to the main screen immediately on button press rather than
-    // waiting for the radio Pi's agent to resolve and publish 'idle' back --
-    // the user's part is done as soon as they've tapped Pair/Cancel.
-    this.setState({ pairingState: 'idle', pairingCode: '' })
   }
   componentDidMount() {
     const client = new w3cwebsocket('ws://localhost:8080/', 'echo-protocol')
@@ -51,12 +40,6 @@ class App extends React.Component {
           if (socketData.radioSetting) {
             this.setState({ rotation: socketData.radioSetting })
           }
-          if (socketData.pairing) {
-            this.setState({
-              pairingCode: socketData.pairing.code,
-              pairingState: socketData.pairing.state
-            })
-          }
           if (socketData.mode !== undefined) {
             this.setState({ mode: socketData.mode })
           }
@@ -70,16 +53,6 @@ class App extends React.Component {
     }
   }
   render() {
-    if (this.state.pairingState === 'active' && this.state.pairingCode) {
-      return (
-        <PairingScreen
-          code={this.state.pairingCode}
-          onPair={() => this.sendPairingResponse('confirm')}
-          onCancel={() => this.sendPairingResponse('deny')}
-        />
-      )
-    }
-
     if (this.state.mode === 6) {
       return <EqMixerScreen eq={this.state.eq} onChange={this.sendEqSet} />
     }
@@ -115,25 +88,6 @@ class App extends React.Component {
 }
 
 export default App
-
-const PairingScreen = props => {
-  return (
-    <div className="pairing-screen">
-      <div className="pairing-code">{props.code}</div>
-      <div className="pairing-label">
-        Confirm this code matches your phone to pair
-      </div>
-      <div className="pairing-buttons">
-        <div className="pairing-button pair" onClick={props.onPair}>
-          Pair
-        </div>
-        <div className="pairing-button cancel" onClick={props.onCancel}>
-          Cancel
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // Subset of eq-agent.py's full 10-band BAND_NUMID set on the radio Pi --
 // 6 sliders is more usable on an 800px touchscreen than all 10, weighted

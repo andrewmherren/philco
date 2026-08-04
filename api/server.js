@@ -12,11 +12,6 @@ const mqttBridge = createBridge({
   port: process.env.MQTT_PORT,
   username: process.env.MQTT_USERNAME,
   password: process.env.MQTT_PASSWORD,
-  onPairingUpdate: (pairing) => {
-    if (connection != null) {
-      connection.sendUTF(JSON.stringify({ pairing }))
-    }
-  },
   onEqUpdate: (eq) => {
     if (connection != null) {
       connection.sendUTF(JSON.stringify({ eq }))
@@ -54,9 +49,7 @@ wsServer.on('request', request => {
     if (message.type !== 'utf8') return
     try {
       const data = JSON.parse(message.utf8Data)
-      if (data.pairingResponse) {
-        mqttBridge.respondToPairing(data.pairingResponse)
-      } else if (data.eqSet) {
+      if (data.eqSet) {
         mqttBridge.publishEqSet(data.eqSet.band, data.eqSet.gain)
       }
     } catch (e) {
@@ -125,6 +118,20 @@ port.on('data', function (data) {
 
     const publishedValue = key === 'multi1' ? MULTI1_REMAP[value] : value
     if (publishedValue === undefined) return
+
+    // While the radio is off, station/mode changes are ignored entirely --
+    // not even published to MQTT -- so nothing downstream (station-agent.py,
+    // the touchscreen's EQ-mixer mode screen, HA sensors) reacts to moving
+    // the dial/switch while off. Also closes a real gap found in station-
+    // agent.py: without this, moving the dial while off could still start
+    // playback, since station-agent had no way to know the radio was off.
+    // `lastSpotifyVolume === null` (volume state not known yet) does NOT
+    // suppress -- fail open rather than silently withhold updates forever
+    // if a station/mode message happens to arrive before the first volume
+    // reading.
+    const radioIsOff = lastSpotifyVolume !== null && lastSpotifyVolume <= VOLUME_OFF_THRESHOLD
+    if (radioIsOff && (key === 'station' || key === 'multi1')) return
+
     mqttBridge.publish(key, publishedValue)
 
     if (key === 'station' && connection != null) {

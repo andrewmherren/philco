@@ -4,13 +4,9 @@
 # and keeps them in a local state file so the radio's EQ settings survive
 # independently of MQTT broker/network availability at boot -- same
 # "must be self-sufficient after a year untouched" reasoning as the rest
-# of this Pi's setup. Modeled on bt-agent.py's MQTT-agent shape, with one
-# deliberate difference: this has no competing GLib/D-Bus main loop to
-# run afterward, so it uses connect_async()+loop_forever() instead of
-# connect()+loop_start() -- that also means it keeps retrying the very
-# first connection attempt if the broker isn't up yet at boot, which
-# bt-agent.py's pattern does not (its loop_start() is skipped entirely if
-# the initial connect() call raises).
+# of this Pi's setup. Uses connect_async()+loop_forever(retry_first_
+# connection=True) so it keeps retrying the initial connection if the
+# broker isn't up yet at boot.
 #
 # Also periodically re-applies the stored state (see REAPPLY_INTERVAL_
 # SECONDS below) as a safety net -- a user reported EQ settings appearing
@@ -22,16 +18,9 @@
 # IMPORTANT: alsaequal's LADSPA host keeps its live band-gain state in a
 # file at $HOME/.alsaequal.bin -- NOT in the ALSA config or anywhere
 # global. That means this agent only actually controls what go-librespot
-# and shairport-sync hear if all three processes resolve the same $HOME.
-# This is deliberately arranged on the radio Pi: go-librespot.service and
-# this unit both run as root with HOME=/root; shairport-sync.service runs
-# as its own unprivileged user, so it's given a HOME=/root override via a
-# systemd drop-in plus a narrow ACL (execute-only on /root, rw on just
-# /root/.alsaequal.bin) so it can reach that one shared file without
-# broader access to root's home directory. See AGENT_SCRATCHPAD.md for
-# the full story -- this was not discovered until the EQ silently had no
-# effect on AirPlay playback despite every MQTT/amixer check looking
-# correct.
+# hears if both processes resolve the same $HOME. This is deliberately
+# arranged on the radio Pi: go-librespot.service and this unit both run
+# as root with HOME=/root. See AGENT_SCRATCHPAD.md for the full story.
 import json
 import os
 import subprocess

@@ -41,13 +41,13 @@ easily when the session's over.
 ## Radio stack revamp (in progress, `revamp` branch)
 
 See [radio-stack/README.md](radio-stack/README.md) for the project plan
-to unify the audio/Bluetooth/Spotify/HA stack across this device and any
-future ones.
+to unify the audio/Spotify/HA stack across this device and any future
+ones.
 
-## The second Pi (Bluetooth/AirPlay/Spotify radio)
+## The second Pi (Spotify radio)
 
 This repo's app runs on `philco-ui`, but the cabinet also has a second,
 separate Raspberry Pi (`philco`) that runs none of this code — it's just a
-Bluetooth/AirPlay/Spotify Connect audio receiver. See
+Spotify Connect audio receiver. See
 [radio-pi/README.md](radio-pi/README.md) for how it's actually put
 together (spoiler: not a prebuilt image, despite looking like one).

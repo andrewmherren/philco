@@ -9,9 +9,6 @@ const mqtt = require('mqtt')
 
 const TOPIC_PREFIX = 'philco/ui/controls'
 const DISCOVERY_PREFIX = 'homeassistant'
-const PAIRING_CODE_TOPIC = 'philco/pairing/code'
-const PAIRING_STATE_TOPIC = 'philco/pairing/state'
-const PAIRING_RESPONSE_TOPIC = 'philco/pairing/response'
 
 // The radio Pi's eq-agent.py owns these -- band keys match its
 // BAND_NUMID keys (ISO-ish labels for the alsaequal 10-band graphic EQ).
@@ -45,12 +42,11 @@ const CONTROLS = {
   multi1: { name: 'Mode Switch', icon: 'mdi:tune-variant' },
 }
 
-function createBridge({ host, port, username, password, onPairingUpdate, onEqUpdate }) {
+function createBridge({ host, port, username, password, onEqUpdate }) {
   if (!host) {
     console.log(new Date() + ' MQTT bridge disabled: no host configured')
     return {
       publish() {},
-      respondToPairing() {},
       publishEqSet() {},
       publishSpotifyVolumeSet() {},
       publishStationReassert() {},
@@ -64,10 +60,6 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
     reconnectPeriod: 5000,
   })
 
-  // philco (the radio Pi)'s bt-agent publishes the current Bluetooth
-  // pairing passkey here -- this Pi has the only screen, so it's
-  // responsible for displaying it. See radio-pi/bt-agent.py.
-  const pairing = { code: '', state: 'idle' }
   const eq = {}
 
   client.on('connect', () => {
@@ -86,7 +78,7 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
       )
     })
     client.subscribe(
-      [PAIRING_CODE_TOPIC, PAIRING_STATE_TOPIC, `${EQ_STATE_TOPIC_PREFIX}/+`],
+      [`${EQ_STATE_TOPIC_PREFIX}/+`],
       (err) => {
         if (err) console.log(new Date() + ' MQTT subscribe error: ' + err.message)
       }
@@ -94,13 +86,7 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
   })
 
   client.on('message', (topic, message) => {
-    if (topic === PAIRING_CODE_TOPIC) {
-      pairing.code = message.toString()
-      if (onPairingUpdate) onPairingUpdate({ ...pairing })
-    } else if (topic === PAIRING_STATE_TOPIC) {
-      pairing.state = message.toString()
-      if (onPairingUpdate) onPairingUpdate({ ...pairing })
-    } else if (topic.startsWith(`${EQ_STATE_TOPIC_PREFIX}/`)) {
+    if (topic.startsWith(`${EQ_STATE_TOPIC_PREFIX}/`)) {
       const band = topic.slice(EQ_STATE_TOPIC_PREFIX.length + 1)
       eq[band] = message.toString()
       if (onEqUpdate) onEqUpdate({ ...eq })
@@ -118,10 +104,6 @@ function createBridge({ host, port, username, password, onPairingUpdate, onEqUpd
       // can learn the physical control's last-known position immediately,
       // instead of only finding out the next time it moves.
       client.publish(`${TOPIC_PREFIX}/${key}`, String(value), { retain: true })
-    },
-    respondToPairing(response) {
-      if (!client.connected) return
-      client.publish(PAIRING_RESPONSE_TOPIC, response)
     },
     publishEqSet(band, gain) {
       if (!client.connected) return

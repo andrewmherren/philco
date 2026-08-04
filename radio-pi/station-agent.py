@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # Turns the station-tuning dial (philco-ui) into an old-radio-style dial:
-# its 0-1023 raw range is split into 10 equal regions, each independently
-# configured (see /etc/philco-station/regions.json) as either a specific
-# Spotify URI or quiet background "static". Reuses the existing
+# its 0-1023 raw range is split into N equal regions (N = however many
+# entries are in /etc/philco-station/regions.json -- not a fixed count,
+# so shrinking each region's width just means listing more of them),
+# each independently configured as either a specific Spotify URI or quiet
+# background "static". Reuses the existing
 # philco/ui/controls/station MQTT topic that api/server.js already
 # publishes -- no server.js/mqtt-bridge.js/UI changes needed for this.
 #
 # Arbitration ("most recent change wins") needs no special logic here --
 # moving the dial just makes this daemon attempt to open the shared ALSA
-# device (via go-librespot's API or a `sox` subprocess), exactly like
-# shairport-sync/go-librespot already contend for it today. Whichever
-# most recently opened it holds it.
+# device (via go-librespot's API or a `sox` subprocess). Whichever most
+# recently opened it holds it.
 #
 # IMPORTANT: `sox -t alsa default` opens the same default -> plug -> eq ->
-# hw:0 chain go-librespot/shairport-sync use, which routes through the
-# alsaequal LADSPA plugin -- the same one whose live gain state lives in
+# hw:0 chain go-librespot uses, which routes through the alsaequal LADSPA
+# plugin -- the same one whose live gain state lives in
 # $HOME/.alsaequal.bin (see eq-agent.py / AGENT_SCRATCHPAD.md). This
 # service must run with HOME=/root (see station-agent.service) for sox to
 # behave consistently with everything else in the audio chain.
@@ -32,21 +33,25 @@ TOPIC_STATION = "philco/ui/controls/station"
 TOPIC_VOLUME = "philco/ui/controls/volume"
 TOPIC_REASSERT = "philco/station/reassert"
 REGIONS_CONFIG_PATH = "/etc/philco-station/regions.json"
-REGION_COUNT = 10
 
 # The station dial's potentiometer does NOT span the full 0-1023 ADC
 # range the way the volume knob's does -- confirmed via server.js's own
 # serial log across a full physical sweep: raw values only ever ranged
-# 12-574, which is why only 6 of 10 regions were reachable before this
-# fix. A little headroom is added past the observed max/below the
-# observed min in case of minor drift; this is a hardware calibration
-# constant, not something that belongs in regions.json.
+# 12-574, which used to mean only 6 of the (then-fixed) 10 regions were
+# reachable before this was fixed. A little headroom is added past the
+# observed max/below the observed min in case of minor drift; this is a
+# hardware calibration constant, not something that belongs in
+# regions.json, and is independent of however many regions there are --
+# region_index_for_raw() below divides this same physical span by
+# len(regions), whatever that is, so adding/removing regions in the
+# config just changes how wide each one is, not this range.
 STATION_RAW_MIN = 0
 STATION_RAW_MAX = 600
 VOLUME_ADC_MAX = 1023
 PLAYER_PLAY_URL = "http://127.0.0.1:3678/player/play"
 PLAYER_PAUSE_URL = "http://127.0.0.1:3678/player/pause"
 PLAYER_SHUFFLE_URL = "http://127.0.0.1:3678/player/shuffle_context"
+PLAYER_NEXT_URL = "http://127.0.0.1:3678/player/next"
 
 # The volume knob has a physical off click-stop at one end of its travel.
 # We track the knob's own last-known raw position (via the retained
@@ -75,6 +80,50 @@ PLAYER_REQUEST_TIMEOUT_SECONDS = 5
 PLAYER_RETRY_ATTEMPTS = 3
 PLAYER_RETRY_BACKOFF_SECONDS = 0.5
 
+# server.js publishes philco/station/reassert on every raw serial sample
+# that crosses the off/on threshold, with no debounce of its own -- a
+# single continuous knob turn can cross that threshold several times in
+# a few ADC-noise-sized counts, each firing its own reassert. Debounced
+# here (not by moving the threshold) since the threshold itself was
+# confirmed not to be the problem -- see AGENT_SCRATCHPAD.md.
+REASSERT_DEBOUNCE_SECONDS = 1.0
+
+# switch_to_region() runs synchronously inside on_message, which executes
+# on paho's own loop_forever() thread -- and for a "uri" region it blocks
+# on HTTP calls to go-librespot (post_with_retry: up to 3 attempts x 5s
+# timeout each). A fast dial sweep crosses many region boundaries within
+# milliseconds of each other; while on_message is blocked handling the
+# first crossing, every subsequent station message just queues up in
+# paho's receive buffer, then gets delivered one at a time afterward --
+# replaying every region the dial passed through in sequence, audible as
+# several stations cycling by even after the dial has already stopped
+# moving. Debouncing so only the dial's *final* settled position is ever
+# acted on -- see AGENT_SCRATCHPAD.md.
+#
+# IMPORTANT: debouncing alone isn't enough. threading.Timer spawns a new
+# thread on every firing -- if one firing is still blocked inside
+# switch_to_region's slow HTTP/sox calls when a later firing's timer also
+# elapses, both run concurrently, racing to mutate current_index and grab
+# the ALSA device. Confirmed in practice (sox vs go-librespot "device
+# busy" errors, and a sweep landing on the wrong final region because
+# whichever thread happened to *finish* last won, not whichever request
+# was actually most recent). Fixed with playback_lock below: every firing
+# re-reads the latest known value only after acquiring the lock, so a
+# superseded firing just sees "nothing left to do" instead of racing.
+STATION_DEBOUNCE_SECONDS = 0.2
+
+# Debounced the same way, so turning the volume all the way off reliably
+# stops whatever's currently playing -- including static, which nothing
+# previously stopped at all (spotify-volume-agent.py's own volume-off
+# handling only ever paused go-librespot; a static region has no
+# go-librespot involvement, so it just kept playing indefinitely).
+VOLUME_OFF_DEBOUNCE_SECONDS = 0.5
+
+# Serializes all actual playback-mutating work (station switches,
+# reassert, volume-off stop) onto one at a time -- see the comment above
+# STATION_DEBOUNCE_SECONDS for why this is required, not just defensive.
+playback_lock = threading.Lock()
+
 
 def post_with_retry(url, json_body, description):
     for attempt in range(PLAYER_RETRY_ATTEMPTS):
@@ -93,6 +142,10 @@ static_proc = None
 static_volume = STATIC_VOLUME_DEFAULT
 last_raw_station = None
 last_raw_volume = None
+last_volume_on = None  # tracks the last-applied on/off state, for edge detection
+reassert_timer = None
+station_timer = None
+volume_off_timer = None
 started = False
 
 
@@ -116,10 +169,16 @@ def load_regions_config(path):
     except (OSError, ValueError) as e:
         sys.exit(f"Failed to read/parse {path}: {e}")
 
+    # Region count is whatever's in the config, not a fixed number -- the
+    # dial's full physical sweep (STATION_RAW_MIN/MAX) always gets divided
+    # evenly across however many regions are listed, so narrowing each
+    # region just means adding more entries here. Still a hard crash on a
+    # missing/empty list, same "no safe substitute for which physical
+    # position plays what" reasoning as the type/uri checks below.
     regions = config.get("regions")
-    if not isinstance(regions, list) or len(regions) != REGION_COUNT:
+    if not isinstance(regions, list) or len(regions) == 0:
         found = len(regions) if isinstance(regions, list) else type(regions).__name__
-        sys.exit(f"{path}: 'regions' must be a list of exactly {REGION_COUNT} entries, found {found}")
+        sys.exit(f"{path}: 'regions' must be a non-empty list, found {found}")
 
     for i, region in enumerate(regions):
         region_type = region.get("type")
@@ -149,9 +208,10 @@ def find_default_index(regions):
 
 
 def region_index_for_raw(raw):
+    region_count = len(regions)
     clamped = max(STATION_RAW_MIN, min(STATION_RAW_MAX, raw))
     span = STATION_RAW_MAX - STATION_RAW_MIN + 1
-    return max(0, min(REGION_COUNT - 1, (clamped - STATION_RAW_MIN) * REGION_COUNT // span))
+    return max(0, min(region_count - 1, (clamped - STATION_RAW_MIN) * region_count // span))
 
 
 def normalized_volume(raw):
@@ -159,12 +219,25 @@ def normalized_volume(raw):
 
 
 def start_uri(region):
-    # Shuffle must be enabled *before* play, not after -- go-librespot's
-    # own docs note that enabling shuffle after play only shuffles the
-    # upcoming queue and keeps playing the context's first track, whereas
-    # enabling it first actually starts on a random track.
+    # go-librespot's own docs say to enable shuffle *before* play (enabling
+    # it after only reshuffles the upcoming queue, keeping the context's
+    # current/first track). That works fine when go-librespot already has
+    # a track loaded -- but confirmed via live testing AND three real
+    # power-on events' own go-librespot logs (all three landed on the
+    # exact same track, "Habits", for this region's artist context) that
+    # on a genuinely cold/idle player (nothing loaded since go-librespot
+    # last went idle), a shuffle_context call made *before* the first play
+    # silently doesn't take effect at all -- /status confirms
+    # shuffle_context reverts to false right after. Once a track is loaded
+    # (even paused, even unshuffled), a subsequent shuffle_context call
+    # reliably sticks. So: load paused first (silent, no audible anchor
+    # track), enable shuffle now that the player is warm, then skip
+    # forward via /player/next to actually land on a shuffled track --
+    # confirmed live that /player/next also resumes playback on its own,
+    # so paused:true here never becomes audible. See AGENT_SCRATCHPAD.md.
+    post_with_retry(PLAYER_PLAY_URL, {"uri": region["uri"], "paused": True}, f"load uri region {region['uri']}")
     post_with_retry(PLAYER_SHUFFLE_URL, {"shuffle_context": True}, f"enable shuffle for {region['uri']}")
-    post_with_retry(PLAYER_PLAY_URL, {"uri": region["uri"], "paused": False}, f"start uri region {region['uri']}")
+    post_with_retry(PLAYER_NEXT_URL, None, f"skip to shuffled track for {region['uri']}")
 
 
 def stop_uri():
@@ -279,12 +352,68 @@ def on_disconnect(client, userdata, rc):
     print(f"MQTT disconnected, rc={rc}")
 
 
-def on_message(client, userdata, msg):
-    global last_raw_station, last_raw_volume
-
-    if msg.topic == TOPIC_REASSERT:
+def do_reassert():
+    global reassert_timer
+    reassert_timer = None
+    with playback_lock:
         print("Reassert triggered (volume came back on) -- re-applying current region")
         reassert_current_region()
+
+
+def evaluate_station_switch():
+    # Fires STATION_DEBOUNCE_SECONDS after the last station message.
+    # Acquires playback_lock before doing anything: if another firing (or
+    # a reassert/volume-off) is still mid-switch, this blocks until it's
+    # done, then re-reads last_raw_station/current_index FRESH -- not
+    # whatever value scheduled this particular firing -- so a firing that
+    # was superseded while waiting just finds nothing left to do instead
+    # of racing to act on stale data.
+    global station_timer
+    station_timer = None
+    with playback_lock:
+        if last_raw_station is None:
+            return
+        new_index = region_index_for_raw(last_raw_station)
+        if new_index == current_index:
+            return
+        switch_to_region(new_index, regions)
+
+
+def evaluate_volume_off():
+    global volume_off_timer, last_volume_on
+    volume_off_timer = None
+    if last_raw_volume is None:
+        return
+    is_on = normalized_volume(last_raw_volume) > VOLUME_OFF_THRESHOLD
+    with playback_lock:
+        if not is_on and last_volume_on and current_index is not None:
+            print("Volume settled at off -- stopping current region playback")
+            BEHAVIORS[regions[current_index]["type"]]["stop"]()
+        last_volume_on = is_on
+
+
+def on_message(client, userdata, msg):
+    global last_raw_station, last_raw_volume, reassert_timer, station_timer, volume_off_timer
+
+    if msg.topic == TOPIC_REASSERT:
+        # Debounced, unlike the rest of on_message -- server.js publishes
+        # this on every raw serial sample with no debounce/hysteresis of
+        # its own (unlike spotify-volume-agent.py's knob handling), so a
+        # single continuous turn-on can produce several rapid off/on/off
+        # edges right as the reading crosses the threshold (ADC jitter of
+        # just a few counts at that exact boundary), each publishing its
+        # own reassert. Undebounced, each one restarted the station with
+        # a fresh shuffle -- audible as 2-4 rapid track skips right after
+        # turning the radio on, even though nothing was touched after the
+        # knob settled. Collapsing rapid-fire reasserts into the last one
+        # (mirroring spotify-volume-agent.py's own DEBOUNCE_SECONDS
+        # pattern) fixes this without touching the on/off threshold
+        # itself, which was confirmed (via raw serial log review) not to
+        # be the actual problem. See AGENT_SCRATCHPAD.md.
+        if reassert_timer is not None:
+            reassert_timer.cancel()
+        reassert_timer = threading.Timer(REASSERT_DEBOUNCE_SECONDS, do_reassert)
+        reassert_timer.start()
         return
 
     try:
@@ -295,15 +424,19 @@ def on_message(client, userdata, msg):
 
     if msg.topic == TOPIC_VOLUME:
         last_raw_volume = raw
+        if volume_off_timer is not None:
+            volume_off_timer.cancel()
+        volume_off_timer = threading.Timer(VOLUME_OFF_DEBOUNCE_SECONDS, evaluate_volume_off)
+        volume_off_timer.start()
         return
 
     last_raw_station = raw
     if not started:
         return  # decide_startup_region handles the first region once the settle window elapses
-    new_index = region_index_for_raw(raw)
-    if new_index == current_index:
-        return
-    switch_to_region(new_index, regions)
+    if station_timer is not None:
+        station_timer.cancel()
+    station_timer = threading.Timer(STATION_DEBOUNCE_SECONDS, evaluate_station_switch)
+    station_timer.start()
 
 
 regions, static_volume = load_regions_config(REGIONS_CONFIG_PATH)

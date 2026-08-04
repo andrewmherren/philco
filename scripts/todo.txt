@@ -1,2 +1,1 @@
-bluetooth audio
 guake setup with pref backup restore
