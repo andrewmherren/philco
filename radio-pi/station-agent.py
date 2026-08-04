@@ -32,6 +32,16 @@ import requests
 TOPIC_STATION = "philco/ui/controls/station"
 TOPIC_VOLUME = "philco/ui/controls/volume"
 TOPIC_REASSERT = "philco/station/reassert"
+# Bidirectional arbitration with bluetooth-agent.py over the shared ALSA
+# device -- see AGENT_SCRATCHPAD.md. philco/bluetooth/playback is an
+# event (not retained) published whenever a connected phone starts/stops
+# actually streaming A2DP audio; philco/bluetooth/pause is a fire-and-
+# forget request published every time this agent is about to start
+# Spotify/static playback, asking bluetooth-agent.py to send an AVRCP
+# pause to whatever's currently playing over Bluetooth (a no-op on its
+# end if nothing is).
+TOPIC_BLUETOOTH_PLAYBACK = "philco/bluetooth/playback"
+TOPIC_BLUETOOTH_PAUSE = "philco/bluetooth/pause"
 REGIONS_CONFIG_PATH = "/etc/philco-station/regions.json"
 
 # The station dial's potentiometer does NOT span the full 0-1023 ADC
@@ -119,6 +129,10 @@ STATION_DEBOUNCE_SECONDS = 0.2
 # go-librespot involvement, so it just kept playing indefinitely).
 VOLUME_OFF_DEBOUNCE_SECONDS = 0.5
 
+# Same debounce-plus-lock shape again, for the Bluetooth-takes-over
+# direction of the arbitration with bluetooth-agent.py.
+BLUETOOTH_DEBOUNCE_SECONDS = 0.2
+
 # Serializes all actual playback-mutating work (station switches,
 # reassert, volume-off stop) onto one at a time -- see the comment above
 # STATION_DEBOUNCE_SECONDS for why this is required, not just defensive.
@@ -146,6 +160,7 @@ last_volume_on = None  # tracks the last-applied on/off state, for edge detectio
 reassert_timer = None
 station_timer = None
 volume_off_timer = None
+bluetooth_timer = None
 started = False
 
 
@@ -286,6 +301,15 @@ BEHAVIORS = {
 }
 
 
+def request_bluetooth_pause():
+    # Fire-and-forget: published every time this agent is about to grab
+    # the shared ALSA device for Spotify/static, regardless of whether
+    # Bluetooth is actually playing right now -- bluetooth-agent.py no-ops
+    # this if nothing's connected/playing. Keeps this agent from needing
+    # any Bluetooth-side state of its own. See AGENT_SCRATCHPAD.md.
+    mqtt_client.publish(TOPIC_BLUETOOTH_PAUSE, "1")
+
+
 def switch_to_region(new_index, regions):
     global current_index
     new_region = regions[new_index]
@@ -302,6 +326,7 @@ def switch_to_region(new_index, regions):
 
     if old_region is not None:
         BEHAVIORS[old_region["type"]]["stop"]()
+    request_bluetooth_pause()
     BEHAVIORS[new_region["type"]]["start"](new_region)
     current_index = new_index
 
@@ -342,7 +367,9 @@ def reassert_current_region():
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("MQTT connected")
-        client.subscribe([(TOPIC_STATION, 0), (TOPIC_VOLUME, 0), (TOPIC_REASSERT, 0)])
+        client.subscribe([
+            (TOPIC_STATION, 0), (TOPIC_VOLUME, 0), (TOPIC_REASSERT, 0), (TOPIC_BLUETOOTH_PLAYBACK, 0),
+        ])
         threading.Timer(STARTUP_SETTLE_SECONDS, decide_startup_region).start()
     else:
         print(f"MQTT connect refused, rc={rc} (0=ok, 4=bad user/pass, 5=not authorized)")
@@ -392,8 +419,33 @@ def evaluate_volume_off():
         last_volume_on = is_on
 
 
+def evaluate_bluetooth_playback():
+    # Fires BLUETOOTH_DEBOUNCE_SECONDS after bluetooth-agent.py reports a
+    # connected phone started actually streaming A2DP audio. Only reacts
+    # to "playing", not "stopped" -- per explicit request, Bluetooth
+    # taking over pauses Spotify/static, but Bluetooth going quiet doesn't
+    # automatically resume anything (no request to do so, and it'd be
+    # surprising if e.g. a phone briefly stalling mid-track suddenly
+    # kicked Spotify back on).
+    global bluetooth_timer
+    bluetooth_timer = None
+    with playback_lock:
+        if current_index is not None:
+            print("Bluetooth started playing -- pausing current Spotify/static region")
+            BEHAVIORS[regions[current_index]["type"]]["stop"]()
+
+
 def on_message(client, userdata, msg):
-    global last_raw_station, last_raw_volume, reassert_timer, station_timer, volume_off_timer
+    global last_raw_station, last_raw_volume, reassert_timer, station_timer, volume_off_timer, bluetooth_timer
+
+    if msg.topic == TOPIC_BLUETOOTH_PLAYBACK:
+        if msg.payload.decode().strip() != "playing":
+            return
+        if bluetooth_timer is not None:
+            bluetooth_timer.cancel()
+        bluetooth_timer = threading.Timer(BLUETOOTH_DEBOUNCE_SECONDS, evaluate_bluetooth_playback)
+        bluetooth_timer.start()
+        return
 
     if msg.topic == TOPIC_REASSERT:
         # Debounced, unlike the rest of on_message -- server.js publishes

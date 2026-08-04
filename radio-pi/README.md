@@ -3,9 +3,9 @@
 A second, separate Raspberry Pi (hostname `philco`, `192.168.68.65`) that
 lives in the same cabinet as the touchscreen UI Pi (`philco-ui`, see the
 main [README.md](../README.md)) but runs none of this repo's code. Its job
-is to be a Spotify Connect audio receiver for the cabinet's speaker. It is
-**not** a prebuilt "radio" image — it's stock Raspberry Pi OS with a few
-things installed on top.
+is to be a Spotify Connect / Bluetooth audio receiver for the cabinet's
+speaker. It is **not** a prebuilt "radio" image — it's stock Raspberry Pi
+OS with a few things installed on top.
 
 ## Hardware
 
@@ -20,6 +20,9 @@ things installed on top.
 - **OS**: Raspberry Pi OS (Raspbian 12 "bookworm")
 - **Spotify Connect**: [`go-librespot`](https://github.com/devgianlu/go-librespot),
   config at `/etc/go-librespot/config.yml`, run by `go-librespot.service`
+- **Bluetooth (A2DP)**: `bluez` for pairing/connections, `bluez-alsa`
+  (`bluealsa` + `bluealsa-aplay`) to get the actual audio into ALSA —
+  see "Bluetooth" below
 - **Volume ceiling**: hardware gain register capped so nothing can play
   dangerously loud — see "Adjusting max volume" below
 - **Equalizer**: `libasound2-plugin-equal` (alsaequal), a 10-band ALSA
@@ -87,6 +90,43 @@ isn't hot-reloaded:
 ```
 sudo systemctl restart station-agent.service
 ```
+
+## Bluetooth
+
+Bluetooth is entirely gated by the volume knob, via
+[`bluetooth-agent.py`](bluetooth-agent.py) /
+[`bluetooth-agent.service`](bluetooth-agent.service): the adapter is
+powered off (undiscoverable, unpairable, unconnectable) whenever the knob
+is off, and powered on — discoverable and pairable — as soon as it's on.
+Turning the knob off disconnects any currently-connected phone too
+(powering off the adapter does this automatically). No manual
+"pairing mode" button or timer — as long as the radio is on, it's
+pairable.
+
+Pairing is zero-friction on purpose: no code to type or confirm on either
+side ("Just Works" pairing), and a device is auto-trusted as soon as it
+pairs once, so every future reconnection — any time it's back in range
+while the radio is on — is automatic too. The only real security boundary
+here is physical: a phone can only find or pair with the radio while
+someone has the volume on.
+
+Actual audio comes from `bluealsa` + `bluealsa-aplay`
+(`bluealsa.service` / `bluealsa-aplay.service`, both from the
+`bluez-alsa-utils` package), which pipe A2DP audio from whatever phone is
+connected straight into the same shared ALSA `default` device
+`go-librespot`/`sox` use — same EQ, same hardware volume ceiling. Only
+one source can hold that device at a time (no dmix, same as
+Spotify/static), and whichever one most recently started wins:
+- A phone starting playback over Bluetooth automatically pauses whatever
+  Spotify station/static was playing.
+- Turning the station dial (to a different station) while Bluetooth is
+  playing sends an actual AVRCP pause to the phone and takes the speaker
+  back for Spotify/static.
+
+This is `bluetooth-agent.py`/`station-agent.py` talking to each other
+over MQTT (`philco/bluetooth/playback`, `philco/bluetooth/pause`) — see
+AGENT_SCRATCHPAD.md for the details. Bluetooth going quiet on its own
+doesn't automatically resume Spotify; only an actual dial move does.
 
 ## Equalizer
 
