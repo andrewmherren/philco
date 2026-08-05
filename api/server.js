@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 require('dotenv').config({ path: '/etc/philco-mqtt/.env' })
 const WebSocketServer = require('websocket').server
-const SerialPort = require('serialport')
+const { SerialPort } = require('serialport')
 const http = require('http')
 const { createBridge } = require('./mqtt-bridge')
 
@@ -34,7 +34,8 @@ wsServer = new WebSocketServer({
 })
 
 // serial port
-const port = new SerialPort('/dev/ttyACM0', {
+const port = new SerialPort({
+  path: '/dev/ttyACM0',
   baudRate: 9600
 })
 
