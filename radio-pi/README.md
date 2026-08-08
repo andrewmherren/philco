@@ -1,10 +1,10 @@
 ## What this is
 
-A second, separate Raspberry Pi (hostname `philco`, `192.168.68.65`) that
+A second, separate Raspberry Pi (hostname `philco`) that
 lives in the same cabinet as the touchscreen UI Pi (`philco-ui`, see the
 main [README.md](../README.md)) but runs none of this repo's code. Its job
 is to be a Spotify Connect / Bluetooth / AirPlay audio receiver for the
-cabinet's speaker. It is **not** a prebuilt "radio" image — it's stock
+cabinet's speaker. It's stock
 Raspberry Pi OS with a few things installed on top (see "How we confirmed
 this isn't a prebuilt image" below).
 
@@ -307,33 +307,6 @@ success, `5` = not authorized. Home Assistant add-ons (including
 Mosquitto) need an explicit restart to pick up a config change like a new
 login — easy to forget, and looks identical to "wrong password" from the
 client side.
-
-## How we confirmed this isn't a prebuilt image
-
-- `/etc/rpi-issue` and `/etc/os-release` both identify it as plain
-  Raspberry Pi OS — a dedicated distro (moOde, Volumio, RuneAudio,
-  HiFiBerryOS, etc.) would report its own OS name here instead.
-- `/etc/apt/sources.list.d/` has only the official Raspberry Pi repo and
-  any add-on package repos actually in use — no third-party image-vendor
-  repo.
-- `dpkg.log` timestamps for `go-librespot`/`shairport-sync`/etc. don't
-  match the OS image's own build date, and are spread across separate
-  install sessions rather than landing in one two-minute window. If this
-  were a single prebuilt image, those packages would carry the same build
-  timestamp as the OS itself. Instead, someone flashed plain Raspberry Pi
-  OS and installed each piece manually, separately, over time — not one
-  appliance flash. (Easy to misremember as prebuilt — some of these
-  installers are a single curl-pipe-bash command that feels like flashing
-  an appliance.)
-
-## Current health
-
-Has **not** yet had the journald size cap / disk-space watchdog from
-[scripts/pi-maintenance/](../scripts/pi-maintenance/) applied — the same
-failure mode that hit `philco-ui` (unbounded journal growth over a year+
-of unattended uptime eating the whole card) could hit this box too given
-enough time. Worth applying the same guardrails here preemptively rather
-than waiting for it to happen again.
 
 ## Remote access
 
