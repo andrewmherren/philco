@@ -12,10 +12,6 @@ module.exports = {
     filename: 'bundle.js',
     publicPath: 'http://localhost:5000/public/'
   },
-  devServer: {
-    contentBase: './',
-    publicPath: 'http://localhost:5000/public/'
-  },
   module: {
     rules: [
       // js
@@ -40,8 +36,8 @@ module.exports = {
           {
             loader: 'postcss-loader',
             options: {
-              plugins: () => {
-                return [autoprefixer]
+              postcssOptions: {
+                plugins: [autoprefixer]
               }
             }
           }
@@ -55,8 +51,8 @@ module.exports = {
           {
             loader: 'postcss-loader',
             options: {
-              plugins: () => {
-                return [autoprefixer]
+              postcssOptions: {
+                plugins: [autoprefixer]
               }
             }
           }

@@ -1,24 +1,30 @@
 ## Why this exists
 
-In 2026-07 this Pi's SD card (~7.4G, non-expandable) filled to 100%, which
-broke `sudo`, package installs, and very nearly corrupted `/etc/sudoers.d`
-mid-write. Root cause: this device runs unattended for a year or more
-between visits, and `systemd-journald` had no size cap, so the persistent
-journal (`/var/log/journal/`) grew unbounded over that time until it — along
-with the Arduino IDE install and the project checkout under `/home/philco`
-— ate the whole card.
+Caps `systemd-journald`'s size and adds a periodic disk-space check,
+because these devices run unattended for a year or more between visits —
+without a cap, journald can quietly fill a small SD card over that much
+uptime.
 
-At the same time we found two related, silently-broken services on this
-specific Pi (most likely from whatever happened during the disk-full
-period): `systemd-timesyncd` was crash-looping (`status=226/NAMESPACE`,
-consistent with a systemd private-mount-namespace setup failing when the
-disk had no room), and `/etc/resolv.conf` had been empty since first boot,
-so DNS resolution silently failed — which in turn kept NTP from ever
-completing a sync. Restarting `systemd-timesyncd` and `dhcpcd` (see
-2026-07 fix in git history / this file) resolved both once disk space was
-available again. If DNS breaks again, check `cat /etc/resolv.conf` and
-`sudo resolvconf -l` first — `resolvconf`/openresolv are installed and work
-correctly when invoked, the issue was that the record from dhcpcd wasn't
+Built after a real incident (2026-07): `philco-ui`'s ~7.4G card
+(non-expandable) filled to 100% — `systemd-journald` had no size cap, so
+the persistent journal (`/var/log/journal/`) grew unbounded over a year+
+of unattended uptime until it, along with the Arduino IDE install and
+this repo's own checkout under `/home/philco`, ate the whole card. This
+broke `sudo` and package installs and very nearly corrupted
+`/etc/sudoers.d` mid-write.
+
+Recovering also turned up two related, silently-broken services (most
+likely side effects of running disk-full for a while): `systemd-timesyncd`
+was crash-looping (`status=226/NAMESPACE`, consistent with a systemd
+private-mount-namespace setup failing when the disk had no room), and
+`/etc/resolv.conf` had been empty since first boot (dhcpcd's DNS record
+wasn't being flushed to disk), which had silently broken both DNS and NTP
+sync. Restarting `systemd-timesyncd` and `dhcpcd` resolved both once disk
+space was available again — worth knowing if a Pi's clock or DNS ever
+seem wrong for no reason: check `df -h /` first, even if the symptom
+doesn't look disk-related. If DNS breaks again, check `cat /etc/resolv.conf`
+and `sudo resolvconf -l` first — `resolvconf`/openresolv are installed and
+work correctly when invoked, the issue was the record from dhcpcd not
 being flushed to disk.
 
 ## What this installs

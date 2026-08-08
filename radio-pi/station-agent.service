@@ -1,0 +1,14 @@
+[Unit]
+Description=Philco station-dial preset MQTT agent
+After=network-online.target go-librespot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 -u /usr/local/bin/station-agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

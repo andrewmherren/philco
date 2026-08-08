@@ -4,7 +4,13 @@
     "browser": true,
     "node": true
   },
-  "parser": "babel-eslint",
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "requireConfigFile": false,
+    "babelOptions": {
+      "presets": ["@babel/preset-react"]
+    }
+  },
   "rules": {
     "react/jsx-uses-react": 2,
     "react/jsx-uses-vars": 2,
@@ -12,7 +18,6 @@
     "space-before-function-paren": ["error", "never"]
   },
   "plugins": [
-    "babel",
     "react"
   ]
 }

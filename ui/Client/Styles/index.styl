@@ -4,7 +4,7 @@ body
   margin 0px
   padding 0px
   overflow hidden
-  transform rotate(.5deg) scale(.89,.8) translate(-4px,-40px)
+  transform rotate(.5deg) scale(.89,.8) translate(-4px,22px)
 
 #content
   width 800px
@@ -72,4 +72,85 @@ body
   flex 1 1 100%
   height 100%
   z-index 100
-  
+
+.eq-screen
+  width 800px
+  height 480px
+  background #111
+  color white
+  display flex
+  flex-direction column
+  align-items center
+  justify-content center
+
+.eq-title
+  font-size 32px
+  margin-bottom 20px
+  letter-spacing 2px
+
+.eq-bands
+  display flex
+  justify-content center
+  align-items center
+  width 760px
+  height 280px
+
+.eq-band
+  display flex
+  flex-direction column
+  align-items center
+  justify-content center
+  flex 1 1 0
+  height 100%
+
+// input[type=range] keeps its *unrotated* layout box (220x40) even after
+// a CSS rotate -- without this wrapper, six of those side by side massively
+// overlap each other and cover the labels below them. Give the wrapper the
+// actual (rotated) footprint and absolutely-center the input inside it so
+// layout is driven by the wrapper, not the input's native box.
+.eq-slider-wrap
+  position relative
+  width 60px
+  height 220px
+
+.eq-slider
+  position absolute
+  top 50%
+  left 50%
+  width 220px
+  height 40px
+  margin -20px 0 0 -110px
+  transform rotate(-90deg)
+  -webkit-appearance none
+  appearance none
+  background transparent
+
+.eq-slider::-webkit-slider-runnable-track
+  height 8px
+  background #444
+  border-radius 4px
+
+.eq-slider::-webkit-slider-thumb
+  -webkit-appearance none
+  width 36px
+  height 36px
+  margin-top -14px
+  border-radius 50%
+  background #2e7d32
+
+.eq-band-label
+  margin-top 10px
+  font-size 18px
+  font-family monospace
+
+.eq-flat-toggle
+  margin-top 20px
+  font-size 22px
+  padding 14px 40px
+  border-radius 8px
+  background #444
+  color white
+
+.eq-flat-toggle.active
+  background #2e7d32
+

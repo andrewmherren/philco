@@ -1,0 +1,15 @@
+{
+  "static_volume": 0.05,
+  "regions": [
+    { "type": "uri", "uri": "spotify:playlist:REPLACE_ME", "default": true },
+    { "type": "static" },
+    { "type": "uri", "uri": "spotify:album:REPLACE_ME" },
+    { "type": "static" },
+    { "type": "uri", "uri": "spotify:playlist:REPLACE_ME" },
+    { "type": "static" },
+    { "type": "uri", "uri": "spotify:playlist:REPLACE_ME" },
+    { "type": "static" },
+    { "type": "uri", "uri": "spotify:track:REPLACE_ME" },
+    { "type": "static" }
+  ]
+}

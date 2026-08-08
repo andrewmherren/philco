@@ -46,10 +46,10 @@ of each script.
 
    > Needs a few KB of free disk space for the account/home dir. If
    > `adduser`/`tee` fail with "No space left on device", free some space
-   > first (see project README's "Known constraints" section for this
-   > device's disk situation) — a partially-created account/sudoers file can
-   > leave the system in a broken state, so don't skip the `visudo -c` check
-   > the script runs.
+   > first (see [scripts/pi-maintenance/](../pi-maintenance/) if this
+   > keeps happening) — a partially-created account/sudoers file can leave
+   > the system in a broken state, so don't skip the `visudo -c` check the
+   > script runs.
 
 ## Day to day
 
