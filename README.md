@@ -65,12 +65,6 @@ key-only, one-command-toggle SSH account you can hand to an AI assistant
 (or anyone else) without exposing your own login — and revoke just as
 easily when the session's over.
 
-## Radio stack revamp (in progress, `revamp` branch)
-
-See [radio-stack/README.md](radio-stack/README.md) for the project plan
-to unify the audio/Spotify/HA stack across this device and any future
-ones.
-
 ## The second Pi (the radio)
 
 This repo's app runs on `philco-ui`, but the cabinet also has a second,
