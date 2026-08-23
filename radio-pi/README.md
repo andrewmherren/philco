@@ -115,8 +115,10 @@ The tuning-dial knob on `philco-ui` splits its usable range into equal
 count isn't fixed, so adding/removing entries there just makes each
 station narrower/wider to fit the same physical sweep. Each station is
 independently configured as either a specific Spotify URI
-(playlist/album/track/artist — starts in shuffle) or quiet background
-"static." One region is flagged `"default": true` and starts playing
+(playlist/album/track/artist — starts in shuffle, and loops via
+`repeat_context` once the shuffled context runs out rather than going
+silent) or quiet background "static." One region is flagged
+`"default": true` and starts playing
 automatically as soon as [`station-agent.py`](station-agent.py) /
 [`station-agent.service`](station-agent.service) boots — no dial movement
 required, just like a real radio powering on. Moving the dial to another
@@ -328,12 +330,13 @@ client side.
 
 ## Current health
 
-Has **not** yet had the journald size cap / disk-space watchdog from
-[scripts/pi-maintenance/](../scripts/pi-maintenance/) applied — the same
-failure mode that hit `philco-ui` (unbounded journal growth over a year+
-of unattended uptime eating the whole card) could hit this box too given
-enough time. Worth applying the same guardrails here preemptively rather
-than waiting for it to happen again.
+Has the journald size cap / disk-space watchdog from
+[scripts/pi-maintenance/](../scripts/pi-maintenance/) applied (2026-08-08)
+— the same failure mode that hit `philco-ui` (unbounded journal growth
+over a year+ of unattended uptime eating the whole card) could otherwise
+have hit this box too given enough time. At install time this Pi was at
+40% disk usage with only 1.8M of journal, so this was applied
+preemptively rather than in response to any actual problem here.
 
 ## Remote access
 
