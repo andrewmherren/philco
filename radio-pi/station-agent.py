@@ -64,6 +64,7 @@ VOLUME_ADC_MAX = 1023
 PLAYER_PLAY_URL = "http://127.0.0.1:3678/player/play"
 PLAYER_PAUSE_URL = "http://127.0.0.1:3678/player/pause"
 PLAYER_SHUFFLE_URL = "http://127.0.0.1:3678/player/shuffle_context"
+PLAYER_REPEAT_URL = "http://127.0.0.1:3678/player/repeat_context"
 PLAYER_NEXT_URL = "http://127.0.0.1:3678/player/next"
 
 # The volume knob has a physical off click-stop at one end of its travel.
@@ -254,8 +255,17 @@ def start_uri(region):
     # forward via /player/next to actually land on a shuffled track --
     # confirmed live that /player/next also resumes playback on its own,
     # so paused:true here never becomes audible. See AGENT_SCRATCHPAD.md.
+    #
+    # Also enables repeat_context here, same warm-player timing as
+    # shuffle (set alongside it, both before the /player/next that
+    # actually starts audible playback) -- per user report, without this
+    # a station plays fine but goes silent once every track in the
+    # shuffled context has played once, staying stopped until the dial is
+    # touched again. repeat_context makes go-librespot loop back into the
+    # context instead of stopping at the end.
     post_with_retry(PLAYER_PLAY_URL, {"uri": region["uri"], "paused": True}, f"load uri region {region['uri']}")
     post_with_retry(PLAYER_SHUFFLE_URL, {"shuffle_context": True}, f"enable shuffle for {region['uri']}")
+    post_with_retry(PLAYER_REPEAT_URL, {"repeat_context": True}, f"enable repeat for {region['uri']}")
     post_with_retry(PLAYER_NEXT_URL, None, f"skip to shuffled track for {region['uri']}")
 
 
