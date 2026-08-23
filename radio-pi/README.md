@@ -1,10 +1,10 @@
 ## What this is
 
-A second, separate Raspberry Pi (hostname `philco`, `192.168.68.65`) that
+A second, separate Raspberry Pi (hostname `philco`) that
 lives in the same cabinet as the touchscreen UI Pi (`philco-ui`, see the
 main [README.md](../README.md)) but runs none of this repo's code. Its job
 is to be a Spotify Connect / Bluetooth / AirPlay audio receiver for the
-cabinet's speaker. It is **not** a prebuilt "radio" image — it's stock
+cabinet's speaker. It's stock
 Raspberry Pi OS with a few things installed on top (see "How we confirmed
 this isn't a prebuilt image" below).
 
