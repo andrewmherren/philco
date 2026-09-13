@@ -154,3 +154,65 @@ body
 .eq-flat-toggle.active
   background #2e7d32
 
+.status-screen
+  width 800px
+  height 480px
+  background #111
+  color white
+  display flex
+  flex-direction column
+  align-items center
+  justify-content center
+
+.status-title
+  font-size 32px
+  margin-bottom 20px
+  letter-spacing 2px
+
+.status-row
+  display flex
+  align-items center
+  width 680px
+  padding 16px 0
+  border-bottom 1px solid #333
+
+.status-indicator
+  width 24px
+  height 24px
+  border-radius 50%
+  margin-right 20px
+  flex none
+  background #555
+
+.status-indicator.status-ok
+  background #2e7d32
+
+.status-indicator.status-error
+  background #c62828
+
+.status-indicator.status-off, .status-indicator.status-down
+  background #555
+
+.status-text
+  flex 1 1 auto
+
+.status-label
+  font-size 22px
+
+.status-detail
+  font-size 16px
+  font-family monospace
+  color #aaa
+  margin-top 4px
+
+.status-restart-btn
+  font-size 18px
+  padding 10px 24px
+  border-radius 8px
+  background #444
+  color white
+
+.status-restart-btn.disabled
+  background #2a2a2a
+  color #777
+

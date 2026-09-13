@@ -29,6 +29,12 @@ const SPOTIFY_VOLUME_SET_TOPIC = 'philco/spotify/volume/set'
 // no-op check, so it needs an explicit "please re-apply now" signal).
 const STATION_REASSERT_TOPIC = 'philco/station/reassert'
 
+// The radio Pi's system-status-agent.py owns these -- health of the three
+// audio sources (Spotify/Bluetooth/AirPlay) for the touchscreen's System
+// Status screen (mode-switch position 5), and the "please restart this
+// source" command each has a button for.
+const SYSTEM_STATUS_TOPIC_PREFIX = 'philco/system'
+
 const DEVICE = {
   identifiers: ['philco-ui-controls'],
   name: 'Philco UI Controls',
@@ -42,7 +48,7 @@ const CONTROLS = {
   multi1: { name: 'Mode Switch', icon: 'mdi:tune-variant' },
 }
 
-function createBridge({ host, port, username, password, onEqUpdate }) {
+function createBridge({ host, port, username, password, onEqUpdate, onSystemStatusUpdate }) {
   if (!host) {
     console.log(new Date() + ' MQTT bridge disabled: no host configured')
     return {
@@ -50,6 +56,7 @@ function createBridge({ host, port, username, password, onEqUpdate }) {
       publishEqSet() {},
       publishSpotifyVolumeSet() {},
       publishStationReassert() {},
+      publishSystemRestart() {},
     }
   }
 
@@ -61,6 +68,7 @@ function createBridge({ host, port, username, password, onEqUpdate }) {
   })
 
   const eq = {}
+  const systemStatus = {}
 
   client.on('connect', () => {
     console.log(new Date() + ' MQTT connected, publishing discovery config')
@@ -78,7 +86,7 @@ function createBridge({ host, port, username, password, onEqUpdate }) {
       )
     })
     client.subscribe(
-      [`${EQ_STATE_TOPIC_PREFIX}/+`],
+      [`${EQ_STATE_TOPIC_PREFIX}/+`, `${SYSTEM_STATUS_TOPIC_PREFIX}/+/status`],
       (err) => {
         if (err) console.log(new Date() + ' MQTT subscribe error: ' + err.message)
       }
@@ -90,6 +98,15 @@ function createBridge({ host, port, username, password, onEqUpdate }) {
       const band = topic.slice(EQ_STATE_TOPIC_PREFIX.length + 1)
       eq[band] = message.toString()
       if (onEqUpdate) onEqUpdate({ ...eq })
+    } else if (topic.startsWith(`${SYSTEM_STATUS_TOPIC_PREFIX}/`) && topic.endsWith('/status')) {
+      const service = topic.slice(SYSTEM_STATUS_TOPIC_PREFIX.length + 1, -'/status'.length)
+      try {
+        systemStatus[service] = JSON.parse(message.toString())
+      } catch (e) {
+        console.log(new Date() + ' Failed to parse system status payload: ' + e.message)
+        return
+      }
+      if (onSystemStatusUpdate) onSystemStatusUpdate({ ...systemStatus })
     }
   })
 
@@ -116,6 +133,10 @@ function createBridge({ host, port, username, password, onEqUpdate }) {
     publishStationReassert() {
       if (!client.connected) return
       client.publish(STATION_REASSERT_TOPIC, '1')
+    },
+    publishSystemRestart(service) {
+      if (!client.connected) return
+      client.publish(`${SYSTEM_STATUS_TOPIC_PREFIX}/${service}/restart`, '1')
     },
   }
 }

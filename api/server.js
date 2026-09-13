@@ -17,6 +17,11 @@ const mqttBridge = createBridge({
       connection.sendUTF(JSON.stringify({ eq }))
     }
   },
+  onSystemStatusUpdate: (systemStatus) => {
+    if (connection != null) {
+      connection.sendUTF(JSON.stringify({ systemStatus }))
+    }
+  },
 })
 
 // websocket server
@@ -52,6 +57,9 @@ wsServer.on('request', request => {
       const data = JSON.parse(message.utf8Data)
       if (data.eqSet) {
         mqttBridge.publishEqSet(data.eqSet.band, data.eqSet.gain)
+      }
+      if (data.systemRestart) {
+        mqttBridge.publishSystemRestart(data.systemRestart)
       }
     } catch (e) {
       console.log(new Date() + ' Failed to parse websocket message: ' + e.message)

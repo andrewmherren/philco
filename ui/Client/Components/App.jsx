@@ -8,7 +8,8 @@ class App extends React.Component {
   state = {
     rotation: 0,
     mode: null,
-    eq: {}
+    eq: {},
+    systemStatus: {}
   }
   getPointerRef = el => {
     this.pointer = el
@@ -19,6 +20,11 @@ class App extends React.Component {
   sendEqSet = (band, gain) => {
     if (this.client && this.client.readyState === this.client.OPEN) {
       this.client.send(JSON.stringify({ eqSet: { band, gain } }))
+    }
+  }
+  sendSystemRestart = service => {
+    if (this.client && this.client.readyState === this.client.OPEN) {
+      this.client.send(JSON.stringify({ systemRestart: service }))
     }
   }
   componentDidMount() {
@@ -46,6 +52,9 @@ class App extends React.Component {
           if (socketData.eq) {
             this.setState({ eq: socketData.eq })
           }
+          if (socketData.systemStatus) {
+            this.setState({ systemStatus: socketData.systemStatus })
+          }
         } catch (e) {}
       } else {
         console.log(typeof e.data)
@@ -55,6 +64,10 @@ class App extends React.Component {
   render() {
     if (this.state.mode === 6) {
       return <EqMixerScreen eq={this.state.eq} onChange={this.sendEqSet} />
+    }
+
+    if (this.state.mode === 5) {
+      return <SystemStatusScreen status={this.state.systemStatus} onRestart={this.sendSystemRestart} />
     }
 
     if (this.pointer) {
@@ -199,6 +212,72 @@ class EqBandSlider extends React.Component {
       </div>
     )
   }
+}
+
+// Mode-switch position 5: live health for the radio Pi's three audio
+// sources (go-librespot/Bluetooth/AirPlay), with a per-source restart
+// button -- see radio-pi/system-status-agent.py. Built after a real
+// incident (2026-09) where go-librespot's Spotify auth silently wedged
+// after ~37 days of uptime with no visible symptom short of an SSH
+// session; this screen exists so that kind of thing can be checked and
+// fixed from the cabinet itself.
+const SYSTEM_STATUS_SERVICES = [
+  { key: 'spotify', label: 'Spotify' },
+  { key: 'bluetooth', label: 'Bluetooth' },
+  { key: 'airplay', label: 'AirPlay' },
+]
+
+// How long a restart button stays disabled after a tap -- system-status-
+// agent.py's own restart handling takes up to ~12s to settle on a final
+// status (see RESTART_RECHECK_DELAYS_SECONDS there), so this just prevents
+// impatient double-taps from firing several redundant restarts in a row.
+const RESTART_DISABLE_MS = 5000
+
+class SystemStatusRow extends React.Component {
+  state = { restarting: false }
+  handleRestart = () => {
+    if (this.state.restarting) return
+    this.props.onRestart(this.props.serviceKey)
+    this.setState({ restarting: true })
+    setTimeout(() => this.setState({ restarting: false }), RESTART_DISABLE_MS)
+  }
+  render() {
+    const { label, status } = this.props
+    const state = (status && status.state) || 'unknown'
+    const detail = (status && status.detail) || 'no status yet'
+    return (
+      <div className="status-row">
+        <div className={`status-indicator status-${state}`} />
+        <div className="status-text">
+          <div className="status-label">{label}</div>
+          <div className="status-detail">{detail}</div>
+        </div>
+        <div
+          className={`status-restart-btn${this.state.restarting ? ' disabled' : ''}`}
+          onClick={this.handleRestart}
+        >
+          Restart
+        </div>
+      </div>
+    )
+  }
+}
+
+const SystemStatusScreen = props => {
+  return (
+    <div className="status-screen">
+      <div className="status-title">System Status</div>
+      {SYSTEM_STATUS_SERVICES.map(service => (
+        <SystemStatusRow
+          key={service.key}
+          serviceKey={service.key}
+          label={service.label}
+          status={props.status[service.key]}
+          onRestart={props.onRestart}
+        />
+      ))}
+    </div>
+  )
 }
 
 const MenuOutside = props => {
