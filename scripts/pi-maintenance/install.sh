@@ -26,3 +26,14 @@ systemctl enable --now disk-space-check.timer
 echo "Installed journald cap and disk-space-check.timer."
 journalctl --disk-usage
 systemctl list-timers disk-space-check.timer --no-pager
+
+# Only relevant on the radio Pi (philco) -- go-librespot doesn't exist on
+# philco-ui, so skip this on any box that doesn't have that unit already.
+if [ -f /etc/systemd/system/go-librespot.service ]; then
+    install -m 644 "$DIR/go-librespot-restart.service" /etc/systemd/system/go-librespot-restart.service
+    install -m 644 "$DIR/go-librespot-restart.timer" /etc/systemd/system/go-librespot-restart.timer
+    systemctl daemon-reload
+    systemctl enable --now go-librespot-restart.timer
+    echo "Installed go-librespot-restart.timer."
+    systemctl list-timers go-librespot-restart.timer --no-pager
+fi

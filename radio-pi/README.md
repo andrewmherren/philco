@@ -287,11 +287,65 @@ configured to resolve `$HOME=/root` (either running as root directly, or
 setting EQ values by hand, or you'll be reading/writing a phantom copy
 nothing else ever sees.
 
+## System status screen
+
+The touchscreen's mode switch has a 6th usable position (position 5;
+position 3 is dead, position 6 runs the equalizer above) that shows live
+health for the three audio sources -- Spotify, Bluetooth, AirPlay -- with
+a per-source restart button, via
+[`system-status-agent.py`](system-status-agent.py) /
+[`system-status-agent.service`](system-status-agent.service).
+
+Built after a real incident (2026-09): `go-librespot` ran for ~37 days
+straight and its Spotify Login5 token stopped renewing -- the process
+still looked "alive" (kept reconnecting at the lower AP level), but every
+play request silently failed with `authenticating with login5:
+UNKNOWN_ERROR`. Nothing in `systemctl status` or a shallow log glance
+looked wrong; only an actual authenticated round-trip revealed it. This
+screen exists so that kind of thing can be checked and fixed from the
+cabinet itself, without needing an SSH session.
+
+Every ~20s (and immediately after a restart) it publishes retained
+`{"state": ..., "detail": ...}` JSON to `philco/system/<service>/status`
+for each of `spotify`/`bluetooth`/`airplay`:
+
+- **spotify**: confirms `go-librespot.service` is active, then does a
+  real authenticated round-trip -- re-POSTing `/player/volume` with
+  whatever volume `/status` just reported (a true no-op, but one that
+  still needs a working Login5 token). This deliberately re-creates the
+  exact 2026-09 failure mode rather than just checking "is the process
+  running," so a recurrence won't go unnoticed again.
+- **bluetooth**: `bluealsa`/`bluealsa-aplay` both active, adapter
+  `Powered` state via D-Bus, and whether any device is currently
+  connected -- adapter-off while the volume knob is off is reported as
+  `off` (expected), not an error.
+- **airplay**: `shairport-sync.service` active or not (same off/error
+  distinction based on the volume knob), plus last known playing/idle
+  state from the `philco/audio/airplay/active` arbitration topic.
+
+The touchscreen's restart button for a source publishes to
+`philco/system/<service>/restart` (any payload), which this agent turns
+into `systemctl restart go-librespot.service` /
+`systemctl restart bluealsa.service bluealsa-aplay.service` /
+`systemctl restart shairport-sync.service` respectively, then re-checks
+and republishes that source's status once it's had a few seconds to come
+back up. AirPlay's restart is a deliberate no-op while the volume knob is
+off: `airplay-agent.py` owns starting/stopping `shairport-sync.service`
+based on an on/off *edge*, not an ongoing loop, so force-starting it here
+while off would leave it running indefinitely (advertising over AirPlay)
+until some future volume edge happened to notice and correct it.
+
+Also see [scripts/pi-maintenance/](../scripts/pi-maintenance/)'s
+`go-librespot-restart.timer` -- a weekly restart of `go-librespot.service`
+as belt-and-suspenders against the same class of wedge, independent of
+whether anyone's looked at this screen.
+
 ## MQTT
 
 Every agent on this Pi (`station-agent.py`, `bluetooth-agent.py`,
-`airplay-agent.py`, `eq-agent.py`, `spotify-volume-agent.py`) talks to
-the same Mosquitto broker (the Home Assistant add-on), for both
+`airplay-agent.py`, `eq-agent.py`, `spotify-volume-agent.py`,
+`system-status-agent.py`) talks to the same Mosquitto broker (the Home
+Assistant add-on), for both
 control-topic input from `philco-ui` and the source-arbitration topics
 above. Broker host/port/credentials live in `/etc/philco-mqtt/.env`
 (mode `600`) — a matching file exists on `philco-ui` with its own scoped
@@ -337,6 +391,13 @@ over a year+ of unattended uptime eating the whole card) could otherwise
 have hit this box too given enough time. At install time this Pi was at
 40% disk usage with only 1.8M of journal, so this was applied
 preemptively rather than in response to any actual problem here.
+
+`go-librespot` was upgraded `v0.7.4` → `v0.9.1` (2026-09-13) after the
+Login5 incident described above in "System status screen" — the old
+binary is kept at `/usr/local/bin/go-librespot.bak-0.7.4` on the device
+in case a rollback is ever needed. `go-librespot-restart.timer` (see
+[scripts/pi-maintenance/](../scripts/pi-maintenance/)) and
+`system-status-agent.service` were both installed the same day.
 
 ## Remote access
 

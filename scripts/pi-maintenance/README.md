@@ -53,6 +53,16 @@ This installs:
    be sufficient on its own, but this catches anything else that grows
    unexpectedly (npm/apt caches from a future maintenance session, browser
    profile data, etc.) before it becomes a repeat of the 100%-full incident.
+3. **`go-librespot-restart.timer`** (weekly, radio Pi only — skipped by
+   `install.sh` if `go-librespot.service` doesn't exist on the box) →
+   `go-librespot-restart.service` → `systemctl restart go-librespot.service`.
+   Belt-and-suspenders for a real incident (2026-09): after ~37 days of
+   continuous uptime, go-librespot's Spotify Login5 token stopped
+   renewing — the process still looked "alive" (could still reconnect at
+   the lower AP level), but every play request silently failed. A plain
+   restart fixed it instantly. See `radio-pi/README.md`'s Spotify Connect
+   section for the full story; this timer just bounds how long a repeat
+   of that (or anything like it) could go unnoticed to one week.
 
 ## Checking on it later
 

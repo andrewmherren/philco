@@ -1,0 +1,6 @@
+[Unit]
+Description=Weekly restart of go-librespot (works around a Spotify Login5 token-refresh wedge seen after long uptimes -- see radio-pi/README.md)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart go-librespot.service

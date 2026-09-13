@@ -1,0 +1,13 @@
+[Unit]
+Description=Philco system status/restart agent (Spotify/Bluetooth/AirPlay health over MQTT)
+After=network-online.target bluetooth.service go-librespot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /usr/local/bin/system-status-agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
